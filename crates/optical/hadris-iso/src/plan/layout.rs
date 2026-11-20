@@ -26,10 +26,13 @@ impl Planner<'_> {
         let order = self.preorder();
         let files = self.file_order(&order);
         let desc_end = self.base.descriptors + self.descriptor_count();
-        let mut cursor = desc_end
+        let first = desc_end
             .max(self.opts.min_blocks())
-            .max(self.base.first_block)
-            * SECTOR;
+            .max(self.base.first_block);
+        if first > u64::from(u32::MAX) {
+            return Err(too_large());
+        }
+        let mut cursor = first * SECTOR;
 
         let mut placed = self.prepare_file_extents(&files)?;
         self.place_directories(&order, &mut cursor)?;
@@ -158,6 +161,7 @@ impl Planner<'_> {
             regions,
             end_blocks: end,
             total_blocks: total,
+            output_start: 0,
             fill_gaps: self.base.fill_gaps,
             report,
         })

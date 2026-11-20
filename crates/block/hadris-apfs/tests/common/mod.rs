@@ -453,6 +453,151 @@ pub fn holey_contents(index: u64) -> Vec<u8> {
     data
 }
 
+fn xattr_entry(inode: u64, name: &str, flags: u16, payload: &[u8]) -> Entry {
+    let mut key = fs_key(inode, 4);
+    key.extend_from_slice(&((name.len() + 1) as u16).to_le_bytes());
+    key.extend_from_slice(name.as_bytes());
+    key.push(0);
+    let mut value = flags.to_le_bytes().to_vec();
+    value.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    value.extend_from_slice(payload);
+    (key, value)
+}
+
+#[allow(dead_code)]
+pub fn xattr_image() -> Vec<u8> {
+    let mut entries = vec![inode_entry(2, 2, 0o040755, 0)];
+    entries.extend(file_records(Variant::Plain, 0..FILE_COUNT));
+    entries.push(xattr_entry(16, "user.inline", 2, b"inline"));
+    let mut stream = [0u8; 48];
+    put(&mut stream, 0, &107u64.to_le_bytes());
+    put(
+        &mut stream,
+        8,
+        &(file_contents(0).len() as u64).to_le_bytes(),
+    );
+    put(&mut stream, 16, &(BLOCK as u64).to_le_bytes());
+    entries.push(xattr_entry(16, "user.stream", 1, &stream));
+    entries.push(extent_entry(107, BLOCK as u64, 10));
+    put(&mut stream, 0, &108u64.to_le_bytes());
+    entries.push(xattr_entry(16, "user.missing", 1, &stream));
+    put(&mut stream, 16, &0u64.to_le_bytes());
+    entries.push(xattr_entry(16, "user.sparse", 1, &stream));
+    build_image_records(Variant::Plain, entries)
+}
+
+#[allow(dead_code)]
+pub fn duplicate_symlink_image() -> Vec<u8> {
+    let target = hadris_apfs::types::filesystem::SYMLINK_XATTR_NAME;
+    build_image_records(
+        Variant::Plain,
+        vec![
+            inode_entry(2, 2, 0o040755, 0),
+            drec_entry(2, "link", 16),
+            inode_entry(16, 16, 0o120777, 0),
+            xattr_entry(16, target, 2, b"file0.txt\0"),
+            xattr_entry(16, target, 1, b"truncated"),
+        ],
+    )
+}
+
+#[allow(dead_code)]
+pub fn snapshot_image() -> Vec<u8> {
+    let mut image = build_image();
+    let mut live = image[3 * BLOCK..4 * BLOCK].to_vec();
+    let mut snapshot = live.clone();
+    put(&mut snapshot, 8, &22u64.to_le_bytes());
+    put(&mut snapshot, 24, &0x4000_000Du32.to_le_bytes());
+    put(&mut snapshot, 128, &0u64.to_le_bytes());
+    put(&mut image, 22 * BLOCK, &seal(snapshot));
+    put(&mut live, 16, &5u64.to_le_bytes());
+    put(&mut live, 152, &21u64.to_le_bytes());
+    put(&mut live, 216, &1u64.to_le_bytes());
+    put(&mut image, 3 * BLOCK, &seal(live));
+
+    let mut metadata = vec![0; 50];
+    put(&mut metadata, 8, &22u64.to_le_bytes());
+    put(&mut metadata, 48, &7u16.to_le_bytes());
+    metadata.extend_from_slice(b"before\0");
+    let mut key = fs_key((1 << 60) - 1, 11);
+    key.extend_from_slice(&7u16.to_le_bytes());
+    key.extend_from_slice(b"before\0");
+    let entries = vec![(fs_key(1, 1), metadata), (key, 1u64.to_le_bytes().to_vec())];
+    put(
+        &mut image,
+        21 * BLOCK,
+        &btree_node(21, true, true, 0, None, 0x10, false, &entries),
+    );
+
+    let mut live_entries = vec![inode_entry(2, 2, 0o040755, 0)];
+    live_entries.extend(file_records(Variant::Plain, 1..2));
+    put(
+        &mut image,
+        20 * BLOCK,
+        &btree_node(FS_ROOT_OID, true, true, 0, None, 0, false, &live_entries),
+    );
+    let omap = [
+        omap_entry(FS_ROOT_OID, 1, FS_ROOT_BLOCK, 0),
+        omap_entry(FS_ROOT_OID, 5, 20, 0),
+        omap_entry(1028, 1, 7, 0),
+        omap_entry(1029, 1, 8, 0),
+        omap_entry(1030, 1, 9, 0),
+    ];
+    put(
+        &mut image,
+        5 * BLOCK,
+        &btree_node(5, true, true, 0, Some((16, 16)), 0x10, false, &omap),
+    );
+    put(
+        &mut image,
+        2 * BLOCK,
+        &btree_node(
+            2,
+            true,
+            true,
+            0,
+            Some((16, 16)),
+            0x10,
+            false,
+            &[omap_entry(VOLUME_OID, 5, 3, 0)],
+        ),
+    );
+    put(&mut image, 96, &6u64.to_le_bytes());
+    for block in [0, 1, 2, 4, 5, 20, 21] {
+        let mut bytes = image[block * BLOCK..(block + 1) * BLOCK].to_vec();
+        put(&mut bytes, 16, &5u64.to_le_bytes());
+        put(&mut image, block * BLOCK, &seal(bytes));
+    }
+    image
+}
+
+#[allow(dead_code)]
+pub fn compressed_image(method: u32, size: u64, payload: &[u8], resource: &[u8]) -> Vec<u8> {
+    let mut entries = vec![
+        inode_entry(2, 2, 0o040755, 0),
+        drec_entry(2, "file0.txt", 16),
+    ];
+    entries.extend(file_records(Variant::Plain, 1..FILE_COUNT));
+    let mut inode = inode_entry(16, 100, 0o100644, 0);
+    put(&mut inode.1, 68, &0x20u32.to_le_bytes());
+    entries.push(inode);
+    let mut attr = b"fpmc".to_vec();
+    attr.extend_from_slice(&method.to_le_bytes());
+    attr.extend_from_slice(&size.to_le_bytes());
+    attr.extend_from_slice(payload);
+    entries.push(xattr_entry(16, "com.apple.decmpfs", 2, &attr));
+    if !resource.is_empty() {
+        let mut stream = [0u8; 48];
+        put(&mut stream, 0, &107u64.to_le_bytes());
+        put(&mut stream, 8, &(resource.len() as u64).to_le_bytes());
+        entries.push(xattr_entry(16, "com.apple.ResourceFork", 1, &stream));
+        entries.push(extent_entry(107, BLOCK as u64, 21));
+    }
+    let mut image = build_image_records(Variant::Plain, entries);
+    put(&mut image, 21 * BLOCK, resource);
+    image
+}
+
 #[allow(dead_code)]
 pub fn use_case_image() -> Vec<u8> {
     let mut linked = inode_entry(16, 100, 0o100644, file_contents(0).len() as u64);
@@ -482,14 +627,6 @@ pub fn use_case_image() -> Vec<u8> {
     let mut link_entry = drec_entry(2, "link", 22);
     put(&mut link_entry.1, 16, &10_u16.to_le_bytes());
     let target = b"file0.txt\0";
-    let xattr_name = "com.apple.fs.symlink";
-    let mut key = fs_key(22, 4);
-    key.extend_from_slice(&((xattr_name.len() + 1) as u16).to_le_bytes());
-    key.extend_from_slice(xattr_name.as_bytes());
-    key.push(0);
-    let mut value = 2_u16.to_le_bytes().to_vec();
-    value.extend_from_slice(&(target.len() as u16).to_le_bytes());
-    value.extend_from_slice(target);
     let mut sparse = extent_entry(107, BLOCK as u64, 10);
     put(&mut sparse.0, 8, &(2 * BLOCK as u64).to_le_bytes());
     let mut entries = vec![
@@ -504,7 +641,7 @@ pub fn use_case_image() -> Vec<u8> {
         inode_entry(17, 101, 0o100644, file_contents(1).len() as u64),
         extent_entry(101, BLOCK as u64, 11),
         inode_entry(22, 22, 0o120777, (target.len() - 1) as u64),
-        (key, value),
+        xattr_entry(22, "com.apple.fs.symlink", 2, target),
         inode_entry(
             23,
             107,

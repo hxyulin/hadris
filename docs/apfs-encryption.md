@@ -119,8 +119,8 @@ HMAC tampering, excessive KDF work and unsupported wrapping formats.
 Volume selection stays independent of credentials. The storage backend remains responsible for hardware inline
 decryption; APFS software encryption remains format-specific.
 
-After software encryption, the FUSE qualification work still includes xattrs
-and compression used by ordinary macOS files, Unicode name comparison, scalable
+The APFS driver exposes xattrs and reads compressed files with optional
+codecs. FUSE qualification still includes Unicode name comparison, scalable
 metadata traversal, and real Asahi hardware unlock tests. Start with a read-only
 FUSE mount of an explicitly selected Data volume; presenting macOS's combined
 System/Data namespace is a separate operation.

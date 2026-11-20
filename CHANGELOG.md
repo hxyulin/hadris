@@ -48,6 +48,42 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs:** Drivers can mark a `DirEntry`'s metadata as complete.
+  `read_tree` reuses it for files and symlinks, validating partial entries
+  of those types with `stat`.
+- **hadris-fs:** `read_tree_with_options` can omit symlinks whose targets
+  the source driver cannot export, such as Windows junctions.
+
+- **hadris-ntfs:** Symbolic link and junction reparse points appear as
+  symlinks. `NtfsFs::read_windows_link` reads the original Windows target.
+
+- **hadris-ntfs:** Directory lookup follows the relevant B-tree branches
+  and preserves exact spelling preference among names tied by case folding.
+
+- **hadris-ntfs:** With `alloc`, reads of the most recently opened ordinary
+  file reuse its base record and small unnamed non-resident runlists.
+
+- **hadris-ntfs:** Reads decode LZNT1-compressed streams, including units
+  split across attribute-list extents.
+
+- **hadris-iso:** `Hybrid::with_grub2_bootstrap` patches the MBR boot code
+  with the boot image address GRUB2 expects.
+
+- **hadris-iso:** `Session::export_session` exports a new session to a
+  separate device at a caller-chosen disc LBA, reusing old file extents.
+
+- **hadris-apfs:** `ApfsFs::xattrs` lists extended attributes and
+  `read_xattr` reads inline and stream-backed values at byte offsets.
+
+- **hadris-apfs:** Opt into stored and zlib `decmpfs` file reads with
+  `compression`, or add LZVN and LZFSE with `lzfse`.
+
+- **hadris-apfs:** `ApfsFs::mount_snapshot` mounts an unencrypted volume
+  snapshot by name or transaction identifier.
+
+- **hadris-udf:** With `alloc`, read virtual, sparable and metadata
+  partitions. Metadata reads can fall back to the mirror.
+
 - **hadris-iso, hadris-udf:** `PreparedIso` and `write_prepared` retain and
   write an ISO layout without planning again. Bridge writing reuses that
   layout and maps its extents into UDF without rebuilding the input tree.
@@ -66,6 +102,10 @@ Each published package owns its version and may be released independently.
   allocate a file's whole declared length.
 
 ### Fixed
+
+- **hadris-ntfs:** Read-only mounts can recover MFT record zero from
+  `$MFTMirr`. `VolumeInfo` reports mirror use, the dirty flag, and
+  hibernation status.
 
 - **hadris-iso:** Automatic mounting reports malformed root Rock Ridge data
   through `IsoFs::mount_warning` when it falls back to another namespace.

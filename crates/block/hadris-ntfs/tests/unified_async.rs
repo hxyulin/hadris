@@ -50,12 +50,14 @@ impl MemBuffer for LocalBytes {
 }
 struct Device<B, S> {
     inner: MemDevice<B>,
+    reads: usize,
     _state: PhantomData<fn() -> S>,
 }
 impl<B> Device<B, bool> {
     fn new(inner: MemDevice<B>) -> Self {
         Self {
             inner,
+            reads: 0,
             _state: PhantomData,
         }
     }
@@ -83,6 +85,7 @@ impl<B: MemBuffer, S: Progress> BlockDevice for Device<B, S> {
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
+        self.reads += 1;
         self.inner.poll_read_blocks(&mut (), cx, first, bytes)
     }
     fn cancel(&mut self, _: &mut S) {}
@@ -117,11 +120,48 @@ fn local_rc_devices_and_send_devices_with_local_state_use_one_filesystem() {
     assert_eq!(run(read_image(local)), b"hello ntfs".to_vec());
     let with_local_state = Device::<_, LocalState> {
         inner: MemDevice::new(bytes, BlockSize::new(512).unwrap()),
+        reads: 0,
         _state: PhantomData,
     };
     fn send_value(_: &impl Send) {}
     send_value(&with_local_state);
     assert_eq!(run(read_image(with_local_state)), b"hello ntfs".to_vec());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn open_file_reads_reuse_the_validated_base_record() {
+    use hadris_fs::{MountOptions, Name, OpenMode};
+    use hadris_ntfs::async_::NtfsFs;
+
+    run(async {
+        let device = Device::new(MemDevice::new(
+            image::base_image(),
+            BlockSize::new(512).unwrap(),
+        ));
+        let mut fs = NtfsFs::mount(device, MountOptions::new()).await.unwrap();
+        let node = fs.lookup(fs.root(), Name::new("HELLO.TXT")).await.unwrap();
+        fs.open(node, OpenMode::Read).await.unwrap();
+        let reads = fs.device().reads;
+        let mut bytes = [0; 5];
+        assert_eq!(fs.read(node, 0, &mut bytes).await.unwrap(), 5);
+        assert_eq!(&bytes, b"hello");
+        assert_eq!(fs.read(node, 5, &mut bytes).await.unwrap(), 5);
+        assert_eq!(&bytes, b" ntfs");
+        assert_eq!(fs.device().reads, reads);
+        fs.close(node).await.unwrap();
+        assert_eq!(fs.read(node, 0, &mut bytes).await.unwrap(), 5);
+        assert!(fs.device().reads > reads);
+
+        let node = fs.lookup(fs.root(), Name::new("BIN.DAT")).await.unwrap();
+        fs.open(node, OpenMode::Read).await.unwrap();
+        let reads = fs.device().reads;
+        assert_eq!(fs.read(node, 1, &mut bytes).await.unwrap(), 2);
+        assert_eq!(&bytes[..2], b"in");
+        assert_eq!(fs.read(node, 0, &mut bytes).await.unwrap(), 3);
+        assert_eq!(&bytes[..3], b"bin");
+        assert_eq!(fs.device().reads, reads + 2);
+    });
 }
 #[test]
 fn borrowed_send_future_runs_on_a_scoped_thread() {

@@ -10,8 +10,10 @@ use crate::UdfRevision;
 use crate::error::{Detail, Error};
 use crate::volume::{
     EntityId as Entity, Icb, Identifier, Info, Location, MAX_BLOCK, MAX_PARTITIONS, PartitionInfo,
-    VolumeInfo, check_tag,
+    PartitionKind, VolumeInfo, check_tag,
 };
+#[cfg(feature = "alloc")]
+use crate::volume::{PartitionMap, PartitionSpan};
 use hadris_udf_raw::{
     self as raw, AllocationExtentDescriptor, AnchorVolumeDescriptorPointer, EntityId, ExtAd,
     FileCharacteristics, FileIdentifierDescriptor, FileSetDescriptor, IcbFlags,
@@ -42,15 +44,14 @@ struct DirectoryWindow {
 #[derive(Clone, Copy)]
 enum Piece {
     Disk {
-        offset: u64,
         location: Location,
         len: u64,
     },
-    /// Reads as zeros; `offset` is where an allocated but unrecorded
+    /// Reads as zeros; `location` is where an allocated but unrecorded
     /// extent lies.
     Zero {
         len: u64,
-        offset: Option<u64>,
+        location: Option<Location>,
     },
     Embedded {
         start: usize,
@@ -107,7 +108,7 @@ struct Fid {
 
 /// The id of the entry `fid` names, when its ICB lies inside a partition.
 fn fid_node<E>(info: &Info, fid: &Fid) -> Result<NodeId, Error<E>> {
-    info.offset::<E>(fid.icb.partition, fid.icb.block, 1)
+    info.check_range::<E>(fid.icb, 1)
         .map_err(|_| Detail::FileIdentifier.corrupt())?;
     Ok(fid.icb.id())
 }
@@ -142,6 +143,105 @@ struct Sequence {
     logical: Option<(u32, [u8; MAX_BLOCK])>,
     partitions: [(u16, u32, PartitionInfo); MAX_PARTITIONS],
     partition_count: usize,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy)]
+enum MapSpec {
+    Physical,
+    Sparable {
+        packet: u32,
+        size: u32,
+        tables: [u32; 4],
+        count: u8,
+    },
+    Metadata {
+        file: u32,
+        mirror: u32,
+    },
+    Virtual {
+        v2: bool,
+    },
+}
+
+#[cfg(feature = "alloc")]
+impl MapSpec {
+    fn kind(self) -> PartitionKind {
+        match self {
+            Self::Physical => PartitionKind::Physical,
+            Self::Sparable { .. } => PartitionKind::Sparable,
+            Self::Metadata { .. } => PartitionKind::Metadata,
+            Self::Virtual { .. } => PartitionKind::Virtual,
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+fn map_spec<E>(map: &[u8], revision: UdfRevision) -> FsResult<MapSpec, E> {
+    let id: EntityId = bytemuck::pod_read_unaligned(&map[4..36]);
+    let word = |at| u32::from_le_bytes([map[at], map[at + 1], map[at + 2], map[at + 3]]);
+    match id.name() {
+        b"*UDF Sparable Partition" => {
+            let packet = u32::from(u16::from_le_bytes([map[40], map[41]]));
+            let count = map[42];
+            if packet == 0 || !(1..=4).contains(&count) {
+                return Err(Detail::PartitionMap.corrupt());
+            }
+            Ok(MapSpec::Sparable {
+                packet,
+                count,
+                size: word(44),
+                tables: core::array::from_fn(|index| word(48 + index * 4)),
+            })
+        }
+        b"*UDF Metadata Partition" => Ok(MapSpec::Metadata {
+            file: word(40),
+            mirror: word(44),
+        }),
+        b"*UDF Virtual Partition" => {
+            let map_revision = UdfRevision::from_raw(id.udf_revision());
+            let v2 = if map_revision.to_raw() != 0 {
+                map_revision
+            } else {
+                revision
+            } >= UdfRevision::V2_00;
+            Ok(MapSpec::Virtual { v2 })
+        }
+        _ => Err(Detail::PartitionMap.error(ErrorKind::Unsupported)),
+    }
+}
+
+#[cfg(feature = "alloc")]
+fn add_span<E>(
+    spans: &mut alloc::vec::Vec<PartitionSpan>,
+    block: u32,
+    physical: u64,
+    len: u32,
+) -> FsResult<(), E> {
+    if len == 0 {
+        return Ok(());
+    }
+    if let Some(last) = spans.last_mut() {
+        if last.block.checked_add(last.len) == Some(block)
+            && last.physical + u64::from(last.len) == physical
+        {
+            last.len = last
+                .len
+                .checked_add(len)
+                .ok_or(Detail::PartitionMap.corrupt())?;
+            return Ok(());
+        }
+    }
+    if spans.len() >= MAX_DESCRIPTORS as usize {
+        return Err(ErrorKind::LimitExceeded.into());
+    }
+    spans.try_reserve(1).map_err(|_| ErrorKind::LimitExceeded)?;
+    spans.push(PartitionSpan {
+        block,
+        physical,
+        len,
+    });
+    Ok(())
 }
 
 io_transform! {
@@ -220,6 +320,65 @@ async fn read_bytes<D: BlockDevice>(
         }
     }
     Ok(())
+}
+
+async fn read_mapped<D: BlockDevice>(
+    info: &Info, dev: &mut D, at: Location, mut within: u64, mut out: &mut [u8],
+    mut window: Option<(&mut DirectoryWindow, bool)>,
+) -> FsResult<(), D::Error> {
+    let bs = u64::from(info.block_size);
+    let mirrored = window.as_ref().is_some_and(|(_, mirror)| *mirror);
+    while !out.is_empty() {
+        let block = u32::try_from(within / bs).ok().and_then(|block| at.block.checked_add(block))
+            .ok_or(Detail::Partition.corrupt())?;
+        let at = Location { block, ..at };
+        let local = within % bs;
+        let main = info.run(at, mirrored);
+        let alternate = info.run(at, !mirrored);
+        let (offset, len) = main.or(alternate).ok_or(Detail::Partition.corrupt())?;
+        let len = alternate.filter(|_| main.is_some()).map_or(len, |(_, mirror)| len.min(mirror));
+        let take = (len - local).min(out.len() as u64) as usize;
+        let chunk = &mut out[..take];
+        let read = match window.as_mut() {
+            Some((window, _)) => window.read(info, dev, offset + local, chunk).await,
+            None => read_bytes(dev, info.len, offset + local, chunk).await,
+        };
+        if let Err(error) = read {
+            let Some((other, _)) = alternate.filter(|&(other, _)| other != offset) else { return Err(error) };
+            read_bytes(dev, info.len, other + local, chunk).await.map_err(|_| error)?;
+        }
+        within += take as u64;
+        out = &mut out[take..];
+    }
+    Ok(())
+}
+
+fn prefer_io<E>(first: Error<E>, second: Error<E>) -> Error<E> {
+    if second.kind() == ErrorKind::Io && first.kind() != ErrorKind::Io { second } else { first }
+}
+
+async fn read_tagged<D: BlockDevice, T>(
+    info: &Info, dev: &mut D, at: Location, data: &mut [u8; MAX_BLOCK], mirror_only: bool, bad: Detail,
+    mut decode: impl FnMut(&[u8; MAX_BLOCK], u64, u16) -> FsResult<T, D::Error> + Send,
+) -> FsResult<T, D::Error> {
+    let bs = info.block_size as usize;
+    let mut failure = None;
+    for mirror in [false, true] {
+        if mirror_only && !mirror { continue; }
+        let Some((offset, _)) = info.run(at, mirror) else { continue };
+        let read = read_bytes(dev, info.len, offset, &mut data[..bs]).await.and_then(|()| {
+            let tag = check_tag(&data[..bs], None, at.block).map_err(|_| bad.corrupt())?;
+            decode(data, offset, tag.identifier.get())
+        });
+        match read {
+            Ok(value) => return Ok(value),
+            Err(error) => { failure = Some(match failure {
+                Some(first) => prefer_io(first, error),
+                None => error,
+            }); }
+        }
+    }
+    Err(failure.unwrap_or_else(|| bad.corrupt()))
 }
 
 /// Finds an anchor at block 256, N-256 or N-1, or with `backup` at N-256
@@ -385,7 +544,7 @@ async fn integrity<D: BlockDevice>(
     len: u64,
     block_size: u32,
     mut next: raw::ExtentAd,
-    partitions: usize,
+    partitions: &[PartitionInfo],
 ) -> Integrity {
     let mut found = Integrity::default();
     let mut buf = [0u8; MAX_BLOCK];
@@ -417,7 +576,7 @@ async fn integrity<D: BlockDevice>(
                 _ => return Integrity::default(),
             }
             let lvid: LogicalVolumeIntegrityDescriptor = bytemuck::pod_read_unaligned(&data[..80]);
-            let count = (lvid.partition_count.get() as usize).min(partitions);
+            let count = (lvid.partition_count.get() as usize).min(partitions.len());
             let Some(table) = data.get(80..80 + 4 * count) else {
                 return Integrity::default();
             };
@@ -425,6 +584,9 @@ async fn integrity<D: BlockDevice>(
                 .then(|| {
                     table
                         .chunks_exact(4)
+                        .zip(partitions)
+                        .filter(|(_, partition)| matches!(partition.kind(), PartitionKind::Physical | PartitionKind::Sparable))
+                        .map(|(value, _)| value)
                         .map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]))
                         .try_fold(0u64, |sum, v| (v != u32::MAX).then_some(sum + u64::from(v)))
                 })
@@ -439,6 +601,213 @@ async fn integrity<D: BlockDevice>(
         }
     }
     found
+}
+
+#[cfg(feature = "alloc")]
+async fn load_maps<D: BlockDevice>(info: &mut Info, dev: &mut D, specs: &[MapSpec]) -> FsResult<(), D::Error> {
+    for (index, spec) in specs.iter().copied().enumerate() {
+        if let MapSpec::Sparable { packet, size, tables, count } = spec {
+            let part = info.partitions()[index];
+            info.maps[index].main = sparing_spans(info, dev, part, packet, size, &tables[..usize::from(count)]).await?;
+        }
+    }
+    for (index, spec) in specs.iter().copied().enumerate() {
+        let part = info.partitions()[index];
+        if matches!(spec, MapSpec::Physical | MapSpec::Sparable { .. }) { continue; }
+        let backing = info.partitions().iter().enumerate()
+            .filter(|(_, p)| p.number() == part.number() && matches!(p.kind(), PartitionKind::Physical | PartitionKind::Sparable))
+            .max_by_key(|(_, p)| p.kind() == PartitionKind::Sparable)
+            .map(|(index, _)| index as u16)
+            .ok_or(Detail::PartitionMap.corrupt())?;
+        let (len, map) = match spec {
+            MapSpec::Metadata { file, mirror } => metadata_map(info, dev, backing, file, mirror).await?,
+            MapSpec::Virtual { v2 } => {
+                let (len, main) = virtual_spans(info, dev, backing, v2).await?;
+                (len, PartitionMap { main, mirror: alloc::vec::Vec::new() })
+            }
+            _ => continue,
+        };
+        info.volume.partitions[index].set_map(spec.kind(), len);
+        info.maps[index] = map;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "alloc")]
+async fn sparing_spans<D: BlockDevice>(
+    info: &Info, dev: &mut D, part: PartitionInfo, packet: u32, size: u32, tables: &[u32],
+) -> FsResult<alloc::vec::Vec<PartitionSpan>, D::Error> {
+    let bad = || Detail::PartitionMap.corrupt();
+    let size = u64::from(size).min(56 + u64::from(u16::MAX) * 8) as usize;
+    if size < 56 { return Err(bad()); }
+    let mut bytes = alloc::vec::Vec::new();
+    bytes.try_reserve_exact(size).map_err(|_| ErrorKind::LimitExceeded)?;
+    bytes.resize(size, 0);
+    let bs = u64::from(info.block_size);
+    let mut best = None;
+    let mut failure = None;
+    for &block in tables {
+        let offset = u64::from(block) * bs;
+        let table = read_bytes(dev, info.len, offset, &mut bytes).await
+            .and_then(|()| sparing_table(&bytes, block, part, packet, info.len / bs));
+        match table {
+            Ok((seq, spans)) if best.as_ref().is_none_or(|(seen, _)| seq > *seen) => best = Some((seq, spans)),
+            Err(error) => { failure.get_or_insert(error); }
+            _ => {}
+        }
+    }
+    best.map(|(_, spans)| spans).ok_or_else(|| failure.unwrap_or_else(bad))
+}
+
+#[cfg(feature = "alloc")]
+fn sparing_table<E>(
+    bytes: &[u8], location: u32, part: PartitionInfo, packet: u32, blocks: u64,
+) -> FsResult<(u32, alloc::vec::Vec<PartitionSpan>), E> {
+    let bad = || Detail::PartitionMap.corrupt();
+    check_tag(bytes, Some(0), location).map_err(|_| bad())?;
+    let id: EntityId = bytemuck::pod_read_unaligned(&bytes[16..48]);
+    if id.name() != b"*UDF Sparing Table" { return Err(bad()); }
+    let count = usize::from(u16::from_le_bytes([bytes[48], bytes[49]]));
+    let seq = u32::from_le_bytes([bytes[52], bytes[53], bytes[54], bytes[55]]);
+    let entries = bytes.get(56..56 + count * 8).ok_or_else(bad)?;
+    let base = u64::from(part.start());
+    let mut spans = alloc::vec::Vec::new();
+    let mut next = 0;
+    for entry in entries.chunks_exact(8) {
+        let original = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
+        let physical = u64::from(u32::from_le_bytes([entry[4], entry[5], entry[6], entry[7]]));
+        if original >= 0xFFFF_FFF0 { continue; }
+        if original < next || original % packet != 0 || original.checked_add(packet).is_none_or(|end| end > part.len())
+            || physical + u64::from(packet) > blocks
+        {
+            return Err(bad());
+        }
+        add_span(&mut spans, next, base + u64::from(next), original - next)?;
+        add_span(&mut spans, original, physical, packet)?;
+        next = original + packet;
+    }
+    add_span(&mut spans, next, base + u64::from(next), part.len() - next)?;
+    Ok((seq, spans))
+}
+
+#[cfg(feature = "alloc")]
+async fn metadata_map<D: BlockDevice>(
+    info: &Info, dev: &mut D, backing: u16, file: u32, mirror: u32,
+) -> FsResult<(u32, PartitionMap), D::Error> {
+    let main = metadata_spans(info, dev, Location { partition: backing, block: file }, 0xFA).await;
+    let backup = metadata_spans(info, dev, Location { partition: backing, block: mirror }, 0xFB).await;
+    match (main, backup) {
+        (Ok((len, main)), Ok((other, mirror))) if len == other => Ok((len, PartitionMap { main, mirror })),
+        (Ok((len, main)), _) => Ok((len, PartitionMap { main, mirror: alloc::vec::Vec::new() })),
+        (Err(_), Ok((len, mirror))) => Ok((len, PartitionMap { main: alloc::vec::Vec::new(), mirror })),
+        (Err(error), Err(_)) => Err(error),
+    }
+}
+
+#[cfg(feature = "alloc")]
+async fn metadata_spans<D: BlockDevice>(
+    info: &Info, dev: &mut D, at: Location, kind: u8,
+) -> FsResult<(u32, alloc::vec::Vec<PartitionSpan>), D::Error> {
+    let bad = || Detail::PartitionMap.corrupt();
+    let icb = icb_at(info, dev, at).await?;
+    let bs = u64::from(info.block_size);
+    if icb.file_type != kind || icb.allocation() != allocation::SHORT || icb.size == 0 || icb.size % bs != 0 {
+        return Err(bad());
+    }
+    let blocks = u32::try_from(icb.size / bs).map_err(|_| bad())?;
+    let mut spans = alloc::vec::Vec::new();
+    let mut file = 0;
+    let mut walk = Walk::new(&icb);
+    while file < blocks {
+        let piece = walk.next(info, dev, &icb).await?.ok_or_else(bad)?;
+        if piece.len() % bs != 0 { return Err(bad()); }
+        let len = ((piece.len() / bs) as u32).min(blocks - file);
+        if let Piece::Disk { mut location, .. } = piece {
+            let mut done = 0;
+            while done < len {
+                let (offset, run) = info.run(location, false).ok_or_else(bad)?;
+                let take = (run / bs).min(u64::from(len - done)) as u32;
+                add_span(&mut spans, file + done, offset / bs, take)?;
+                done += take;
+                if done < len {
+                    location.block = location.block.checked_add(take).ok_or_else(bad)?;
+                }
+            }
+        }
+        file += len;
+    }
+    if spans.is_empty() { return Err(bad()); }
+    Ok((blocks, spans))
+}
+
+#[cfg(feature = "alloc")]
+async fn virtual_spans<D: BlockDevice>(
+    info: &Info, dev: &mut D, backing: u16, v2: bool,
+) -> FsResult<(u32, alloc::vec::Vec<PartitionSpan>), D::Error> {
+    let part = info.partitions()[usize::from(backing)];
+    let media_end = (info.len / u64::from(info.block_size)).saturating_sub(u64::from(part.start()));
+    let media_end = u32::try_from(media_end).unwrap_or(u32::MAX);
+    let end = media_end.min(part.len());
+    let bad = || Detail::PartitionMap.corrupt();
+    let mut failure = None;
+    for block in (end.saturating_sub(4)..end).rev() {
+        let at = Location { partition: backing, block };
+        let result = match icb_at(info, dev, at).await {
+            Ok(icb) if icb.file_type == if v2 { 0xF8 } else { 0 } => read_vat(info, dev, &icb, v2).await,
+            Ok(_) => Err(bad()),
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(vat) => return Ok(vat),
+            Err(error) if error.kind() == ErrorKind::Io => { failure.get_or_insert(error); }
+            Err(_) => {}
+        }
+    }
+    Err(failure.unwrap_or_else(bad))
+}
+
+#[cfg(feature = "alloc")]
+async fn read_vat<D: BlockDevice>(
+    info: &Info, dev: &mut D, icb: &Icb, v2: bool,
+) -> FsResult<(u32, alloc::vec::Vec<PartitionSpan>), D::Error> {
+    let bad = || Detail::PartitionMap.corrupt();
+    let mut resume = Resume::default();
+    let mut buf = [0; MAX_BLOCK];
+    let (mut pos, end) = if v2 {
+        read_exact(info, dev, icb, &mut resume, 0, &mut buf[..4], Detail::PartitionMap).await?;
+        let start = u64::from(u16::from_le_bytes([buf[0], buf[1]]));
+        let implementation = u64::from(u16::from_le_bytes([buf[2], buf[3]]));
+        if start != 152 + implementation || start > icb.size { return Err(bad()); }
+        (start, icb.size)
+    } else {
+        let end = icb.size.checked_sub(36).ok_or_else(bad)?;
+        read_exact(info, dev, icb, &mut resume, end, &mut buf[..32], Detail::PartitionMap).await?;
+        let id: EntityId = bytemuck::pod_read_unaligned(&buf[..32]);
+        if id.name() != b"*UDF Virtual Alloc Tbl" { return Err(bad()); }
+        resume = Resume::default();
+        (0, end)
+    };
+    let bytes = end - pos;
+    if bytes == 0 || bytes % 4 != 0 { return Err(bad()); }
+    let count = u32::try_from(bytes / 4).map_err(|_| bad())?;
+    let mut spans = alloc::vec::Vec::new();
+    let mut block = 0;
+    let bs = u64::from(info.block_size);
+    while pos < end {
+        let len = (end - pos).min(buf.len() as u64) as usize;
+        read_exact(info, dev, icb, &mut resume, pos, &mut buf[..len], Detail::PartitionMap).await?;
+        for entry in buf[..len].chunks_exact(4) {
+            let physical = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
+            if physical != u32::MAX {
+                let at = Location { partition: icb.at.partition, block: physical };
+                let (offset, _) = info.run(at, false).ok_or_else(bad)?;
+                add_span(&mut spans, block, offset / bs, 1)?;
+            }
+            block += 1;
+        }
+        pos += len as u64;
+    }
+    Ok((count, spans))
 }
 
 /// Reads the volume structures of `dev`; with `backup` from the anchors at
@@ -481,6 +850,13 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
         .and_then(|end| lvd_block.get(440..end))
         .ok_or(Detail::Descriptor.corrupt())?;
     let mut partitions = [PartitionInfo::default(); MAX_PARTITIONS];
+    #[cfg(feature = "alloc")]
+    let mut specs = [MapSpec::Physical; MAX_PARTITIONS];
+    let revision = domain_revision(&lvd.domain, nsr03).unwrap_or(if nsr03 {
+        UdfRevision::V2_01
+    } else {
+        UdfRevision::V1_02
+    });
     let mut count = 0;
     let mut at = 0;
     for _ in 0..lvd.map_count.get() {
@@ -492,35 +868,38 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
             .get(at..at + map_len)
             .filter(|_| map_len >= 2)
             .ok_or(Detail::Descriptor.corrupt())?;
-        match (kind, map_len) {
-            (1, 6) => {
-                if count == MAX_PARTITIONS {
-                    return Err(Detail::PartitionMap.error(ErrorKind::Unsupported));
-                }
-                let number = u16::from_le_bytes([map[4], map[5]]);
-                let (_, _, part) = found.partitions[..found.partition_count]
-                    .iter()
-                    .find(|(n, _, _)| *n == number)
-                    .ok_or(Detail::Partition.corrupt())?;
-                partitions[count] = *part;
-                count += 1;
+        if count == MAX_PARTITIONS {
+            return Err(Detail::PartitionMap.error(ErrorKind::Unsupported));
+        }
+        let number = match (kind, map_len) {
+            (1, 6) => u16::from_le_bytes([map[4], map[5]]),
+            #[cfg(feature = "alloc")]
+            (2, 64) => {
+                specs[count] = map_spec(map, revision)?;
+                u16::from_le_bytes([map[38], map[39]])
             }
+            #[cfg(not(feature = "alloc"))]
             (2, _) => return Err(Detail::PartitionMap.error(ErrorKind::Unsupported)),
             _ => return Err(Detail::Descriptor.corrupt()),
-        }
+        };
+        let (_, _, part) = found.partitions[..found.partition_count]
+            .iter()
+            .find(|(n, _, _)| *n == number)
+            .ok_or(Detail::Partition.corrupt())?;
+        partitions[count] = *part;
+        #[cfg(feature = "alloc")]
+        partitions[count].set_map(specs[count].kind(), part.len());
+        count += 1;
         at += map_len;
     }
     let (_, pvd) = found.primary.ok_or(Detail::DescriptorSequence.corrupt())?;
-    let revision = domain_revision(&lvd.domain, nsr03).unwrap_or(if nsr03 {
-        UdfRevision::V2_01
-    } else {
-        UdfRevision::V1_02
-    });
     let mut info = Info {
         block_size,
         len,
         root: Location { partition: 0, block: 0 },
         free_blocks: None,
+        #[cfg(feature = "alloc")]
+        maps: core::array::from_fn(|_| Default::default()),
         volume: VolumeInfo {
             revision,
             block_size,
@@ -537,17 +916,16 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
             was_dirty: None,
         },
     };
+    #[cfg(feature = "alloc")]
+    load_maps(&mut info, dev, &specs[..count]).await?;
 
     let fsd_at: LongAd = bytemuck::pod_read_unaligned(&lvd.contents_use);
     let fsd_at = Location::from_long(&fsd_at);
     let mut buf = [0u8; MAX_BLOCK];
-    let data = &mut buf[..block_size as usize];
-    let offset = info
-        .offset::<D::Error>(fsd_at.partition, fsd_at.block, u64::from(block_size))
-        .map_err(|_| Detail::FileSet.corrupt())?;
-    read_bytes(dev, len, offset, data).await?;
-    check_tag(data, Some(tag::FILE_SET), fsd_at.block).map_err(|()| Detail::FileSet.corrupt())?;
-    let fsd: FileSetDescriptor = bytemuck::pod_read_unaligned(&data[..512]);
+    let fsd: FileSetDescriptor = read_tagged(&info, dev, fsd_at, &mut buf, false, Detail::FileSet, |data, _, id| {
+        if id != tag::FILE_SET { return Err(Detail::FileSet.corrupt()); }
+        Ok(bytemuck::pod_read_unaligned(&data[..512]))
+    }).await?;
     info.root = Location::from_long(&fsd.root);
     info.volume.file_set = Identifier::decode(&fsd.file_set_identifier);
     let root = icb_at(&info, dev, info.root).await.map_err(|err| match err.kind() {
@@ -557,7 +935,7 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     if !root.is_dir() {
         return Err(Detail::FileSet.corrupt());
     }
-    let integrity = integrity(dev, len, block_size, lvd.integrity_sequence, count).await;
+    let integrity = integrity(dev, len, block_size, lvd.integrity_sequence, info.partitions()).await;
     info.free_blocks = integrity.free;
     info.volume.was_dirty = integrity.open;
     info.volume.integrity_recorded = integrity.recorded;
@@ -566,11 +944,17 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
 
 /// Reads and decodes the entry at `at`.
 async fn icb_at<D: BlockDevice>(info: &Info, dev: &mut D, at: Location) -> Result<Icb, Error<D::Error>> {
+    icb_copy(info, dev, at, false).await
+}
+
+async fn icb_copy<D: BlockDevice>(info: &Info, dev: &mut D, at: Location, mirror_only: bool) -> Result<Icb, Error<D::Error>> {
     let bs = info.block_size as usize;
-    let offset = info.offset(at.partition, at.block, bs as u64)?;
+    info.check_range(at, bs as u64)?;
     let mut block = [0u8; MAX_BLOCK];
-    read_bytes(dev, info.len, offset, &mut block[..bs]).await?;
-    Icb::parse(at, block, bs)
+    read_tagged(info, dev, at, &mut block, mirror_only, Detail::Icb, |block, offset, id| {
+        if !matches!(id, tag::FILE_ENTRY | tag::EXTENDED_FILE_ENTRY) { return Err(Detail::Icb.corrupt()); }
+        Icb::parse(at, offset, id, *block, bs)
+    }).await
 }
 
 impl Walk {
@@ -622,12 +1006,13 @@ impl Walk {
     async fn load<D: BlockDevice>(&mut self, info: &Info, dev: &mut D, at: Location) -> Result<usize, Error<D::Error>> {
         let bad = || Detail::AllocationDescriptor.corrupt();
         let bs = info.block_size as usize;
-        let offset = info.offset(at.partition, at.block, bs as u64)?;
-        read_bytes(dev, info.len, offset, &mut self.aed[..bs]).await?;
-        check_tag(&self.aed[..bs], Some(tag::ALLOCATION_EXTENT), at.block).map_err(|()| bad())?;
-        let aed: AllocationExtentDescriptor = bytemuck::pod_read_unaligned(&self.aed[..24]);
-        let ads = aed.allocation_descriptors_length.get() as usize;
-        let end = 24usize.checked_add(ads).filter(|&end| end <= bs).ok_or_else(bad)?;
+        info.check_range(at, bs as u64)?;
+        let end = read_tagged(info, dev, at, &mut self.aed, false, Detail::AllocationDescriptor, |data, _, id| {
+            if id != tag::ALLOCATION_EXTENT { return Err(bad()); }
+            let aed: AllocationExtentDescriptor = bytemuck::pod_read_unaligned(&data[..24]);
+            let ads = aed.allocation_descriptors_length.get() as usize;
+            24usize.checked_add(ads).filter(|&end| end <= bs).ok_or_else(bad)
+        }).await?;
         self.aed_at = Some(at);
         Ok(end)
     }
@@ -718,18 +1103,18 @@ impl Walk {
                     self.end = end;
                 }
                 extent::RECORDED => {
-                    let offset = info.offset(at.partition, at.block, length)?;
+                    info.check_range(at, length)?;
                     if information != 0 {
-                        return Ok(Some(Piece::Disk { offset, location: at, len: u64::from(information) }));
+                        return Ok(Some(Piece::Disk { location: at, len: u64::from(information) }));
                     }
                 }
                 extent::ALLOCATED => {
-                    let offset = info.offset::<D::Error>(at.partition, at.block, length).ok();
+                    let location = info.check_range::<D::Error>(at, length).is_ok().then_some(at);
                     if information != 0 {
-                        return Ok(Some(Piece::Zero { len: u64::from(information), offset }));
+                        return Ok(Some(Piece::Zero { len: u64::from(information), location }));
                     }
                 }
-                _ if information != 0 => return Ok(Some(Piece::Zero { len: u64::from(information), offset: None })),
+                _ if information != 0 => return Ok(Some(Piece::Zero { len: u64::from(information), location: None })),
                 _ => {}
             }
         }
@@ -757,7 +1142,7 @@ async fn read_stream_window<D: BlockDevice>(
     resume: &mut Resume,
     offset: u64,
     buf: &mut [u8],
-    mut window: Option<&mut DirectoryWindow>,
+    mut window: Option<(&mut DirectoryWindow, bool)>,
 ) -> Result<usize, Error<D::Error>> {
     if offset >= icb.size {
         return Ok(0);
@@ -786,12 +1171,9 @@ async fn read_stream_window<D: BlockDevice>(
             let take = usize::try_from(len - within).unwrap_or(usize::MAX).min(want - done);
             let out = &mut buf[done..done + take];
             match piece {
-                Piece::Disk { offset, .. } => {
-                    if let Some(window) = window.as_deref_mut() {
-                        window.read(info, dev, offset + within, out).await?;
-                    } else {
-                        read_bytes(dev, info.len, offset + within, out).await?;
-                    }
+                Piece::Disk { location, .. } => {
+                    let window = window.as_mut().map(|(window, mirror)| (&mut **window, *mirror));
+                    read_mapped(info, dev, location, within, out, window).await?;
                 }
                 Piece::Zero { .. } => out.fill(0),
                 Piece::Embedded { start, .. } => {
@@ -825,9 +1207,31 @@ async fn read_exact<D: BlockDevice>(
 
 /// The file identifier at `pos` in directory `dir`.
 async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mut Resume, window: &mut DirectoryWindow, pos: u64) -> Result<Fid, Error<D::Error>> {
+    let first = match fid_at_copy(info, dev, dir, resume, window, pos, false).await {
+        Err(error) if info.mirrored() => error,
+        result => return result,
+    };
+    let mirror;
+    let dir = if dir.allocation() == allocation::EMBEDDED {
+        let Some((offset, _)) = info.run(dir.at, true) else { return Err(first) };
+        if offset == dir.disk_offset { return Err(first); }
+        mirror = match icb_copy(info, dev, dir.at, true).await {
+            Ok(mirror) if mirror.is_dir() => mirror,
+            Ok(_) => return Err(first),
+            Err(error) => return Err(prefer_io(first, error)),
+        };
+        *resume = Resume::default();
+        &mirror
+    } else {
+        dir
+    };
+    fid_at_copy(info, dev, dir, resume, window, pos, true).await.map_err(|error| prefer_io(first, error))
+}
+
+async fn fid_at_copy<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mut Resume, window: &mut DirectoryWindow, pos: u64, mirror: bool) -> Result<Fid, Error<D::Error>> {
     let bad = || Detail::FileIdentifier.corrupt();
     let mut buf = [0u8; FID_BUFFER];
-    if read_stream_window(info, dev, dir, resume, pos, &mut buf[..38], Some(window)).await? != 38 {
+    if read_stream_window(info, dev, dir, resume, pos, &mut buf[..38], Some((window, mirror))).await? != 38 {
         return Err(bad());
     }
     let fid: FileIdentifierDescriptor = bytemuck::pod_read_unaligned(&buf[..38]);
@@ -872,7 +1276,7 @@ async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mu
         }
         let chunk_end = if at < crc_end && tail_at > crc_end { crc_end } else { end };
         let take = (chunk_end - at).min(FID_BUFFER as u64) as usize;
-        if read_stream_window(info, dev, dir, resume, pos + at, &mut buf[..take], Some(window)).await? != take {
+        if read_stream_window(info, dev, dir, resume, pos + at, &mut buf[..take], Some((window, mirror))).await? != take {
             return Err(bad());
         }
         if at < crc_end {
@@ -1069,7 +1473,7 @@ impl<D: BlockDevice> UdfFs<D> {
 
     async fn icb(&mut self, node: NodeId) -> FsResult<Icb, D::Error> {
         let at = Location::of(node)
-            .filter(|at| self.info.offset::<D::Error>(at.partition, at.block, 1).is_ok())
+            .filter(|at| self.info.check_range::<D::Error>(*at, 1).is_ok())
             .ok_or(ErrorKind::InvalidHandle)?;
         icb_at(&self.info, &mut self.dev, at).await
     }
@@ -1116,21 +1520,39 @@ impl<D: BlockDevice> UdfFs<D> {
                 return Err(Detail::AllocationDescriptor.corrupt());
             };
             let len = piece.len().min(icb.size - pos);
-            let extent = match piece {
-                Piece::Disk { offset, .. } => Some(Extent::new(offset, len)),
-                Piece::Zero { offset: Some(offset), .. } => Some(Extent::new(offset, len).with_unwritten()),
-                Piece::Zero { offset: None, .. } => None,
+            let disk = match piece {
+                Piece::Disk { location, .. } => Some((location, false)),
+                Piece::Zero { location, .. } => location.map(|location| (location, true)),
                 Piece::Embedded { start, .. } => {
-                    let block = self.info.offset::<D::Error>(icb.at.partition, icb.at.block, 1)?;
-                    Some(Extent::new(block + start as u64, len))
+                    if pos + len > from && len != 0 {
+                        let Some(slot) = out.get_mut(count) else { return Ok(count) };
+                        *slot = Extent::new(icb.disk_offset + start as u64, len).with_file_offset(pos);
+                        count += 1;
+                    }
+                    None
                 }
             };
-            if let Some(extent) = extent.filter(|_| pos + len > from && len > 0) {
-                let Some(slot) = out.get_mut(count) else {
-                    return Ok(count);
-                };
-                *slot = extent.with_file_offset(pos);
-                count += 1;
+            if let Some((mut at, zero)) = disk {
+                let bs = u64::from(self.info.block_size);
+                let mut done = 0;
+                while done < len {
+                    let run = self.info.run(at, false).or_else(|| self.info.run(at, true));
+                    let Some((offset, bytes)) = run else {
+                        if zero { break; }
+                        return Err(Detail::Partition.corrupt());
+                    };
+                    let size = (len - done).min(bytes);
+                    if pos + done + size > from {
+                        let Some(slot) = out.get_mut(count) else { return Ok(count) };
+                        let extent = Extent::new(offset, size).with_file_offset(pos + done);
+                        *slot = if zero { extent.with_unwritten() } else { extent };
+                        count += 1;
+                    }
+                    done += size;
+                    if done < len {
+                        at.block = at.block.checked_add((size / bs) as u32).ok_or(Detail::Partition.corrupt())?;
+                    }
+                }
             }
             pos += len;
         }
@@ -1148,14 +1570,10 @@ impl<D: BlockDevice> UdfFs<D> {
     /// Entry corruption and device failures are propagated.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn records(&mut self, node: NodeId, out: &mut [Extent]) -> FsResult<usize, D::Error> {
-        let at = Location::of(node).ok_or(ErrorKind::InvalidHandle)?;
+        let slot = out.first_mut().ok_or(ErrorKind::LimitExceeded)?;
         let block_size = u64::from(self.info.block_size);
-        let offset = self
-            .info
-            .offset::<D::Error>(at.partition, at.block, block_size)
-            .map_err(|_| ErrorKind::InvalidHandle)?;
-        self.icb(node).await?;
-        *out.first_mut().ok_or(ErrorKind::LimitExceeded)? = Extent::new(offset, block_size);
+        let icb = self.icb(node).await?;
+        *slot = Extent::new(icb.disk_offset, block_size);
         Ok(1)
     }
 }
@@ -1177,7 +1595,9 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
     /// descriptor records.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all))]
     async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
-        let total = self.info.partitions().iter().map(|p| u64::from(p.len())).sum();
+        let total = self.info.partitions().iter()
+            .filter(|p| matches!(p.kind(), PartitionKind::Physical | PartitionKind::Sparable))
+            .map(|p| u64::from(p.len())).sum();
         Ok(FsStats::new(total, self.info.free_blocks.unwrap_or(0), self.info.block_size))
     }
 
@@ -1268,13 +1688,13 @@ impl<D: BlockDevice> FileSystem for UdfFs<D> {
                 Ok(child) => self.icb_metadata(&child).await,
                 Err(err) => Err(err),
             };
-            let meta = match meta {
-                Ok(meta) => meta,
+            let (meta, complete) = match meta {
+                Ok(meta) => (meta, true),
                 Err(err) if err.kind() == ErrorKind::Io => return Err(err),
-                Err(_) => damaged(&fid),
+                Err(_) => (damaged(&fid), false),
             };
             let entry = DirEntry::new(Name::new(&buf[..len]), node, meta, DirCursor::from_raw(pos))?;
-            return Ok(Some(entry));
+            return Ok(Some(if complete { entry.with_complete_metadata() } else { entry }));
         }
         Ok(None)
     }

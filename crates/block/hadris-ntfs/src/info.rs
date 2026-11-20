@@ -1,6 +1,6 @@
-use crate::volume::Geometry;
+use crate::volume::Info;
 
-/// Geometry and identity read from the boot sector when an NTFS volume mounts.
+/// Geometry, identity and diagnostics recorded when an NTFS volume mounts.
 ///
 /// Returned by `NtfsFs::info` in either mode without reading the device.
 /// The snapshot remains usable after the filesystem is unmounted.
@@ -12,10 +12,14 @@ pub struct VolumeInfo {
     total_sectors: u64,
     mft_record_size: u32,
     index_record_size: u32,
+    used_mft_mirror: bool,
+    dirty: Option<bool>,
+    hibernated: Option<bool>,
 }
 
 impl VolumeInfo {
-    pub(crate) const fn new(geometry: Geometry) -> Self {
+    pub(crate) const fn new(info: &Info) -> Self {
+        let geometry = info.geo;
         Self {
             serial: geometry.serial,
             sector_size: geometry.sector_size,
@@ -23,6 +27,9 @@ impl VolumeInfo {
             total_sectors: geometry.total_sectors,
             mft_record_size: geometry.mft_record_size as u32,
             index_record_size: geometry.index_record_size as u32,
+            used_mft_mirror: info.mft_mirror.is_some(),
+            dirty: info.dirty,
+            hibernated: info.hibernated,
         }
     }
 
@@ -54,5 +61,23 @@ impl VolumeInfo {
     /// Bytes per directory index record.
     pub const fn index_record_size(&self) -> u32 {
         self.index_record_size
+    }
+
+    /// Whether the driver mounted using record zero from `$MFTMirr`.
+    pub const fn used_mft_mirror(&self) -> bool {
+        self.used_mft_mirror
+    }
+
+    /// The on-disk dirty flag, or `None` if the flag could not be read.
+    pub const fn was_dirty(&self) -> Option<bool> {
+        self.dirty
+    }
+
+    /// Whether `hiberfil.sys` indicated hibernation at mount time.
+    ///
+    /// Returns `Some(false)` if the file was absent or its header was cleared,
+    /// and `None` if its state could not be determined.
+    pub const fn was_hibernated(&self) -> Option<bool> {
+        self.hibernated
     }
 }

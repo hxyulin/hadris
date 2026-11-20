@@ -32,6 +32,225 @@ fn generic_driver_contract_and_sealed_tree() {
 }
 
 #[test]
+fn native_xattrs_read_inline_and_stream_values_at_offsets() {
+    let mut fs = mount(xattr_image());
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    let payload = file_contents(0);
+    let mut attributes = Vec::new();
+    fs.xattrs(file, |name, size| attributes.push((name.to_owned(), size)))
+        .unwrap();
+    assert_eq!(
+        attributes,
+        [
+            ("user.inline".into(), 6),
+            ("user.stream".into(), payload.len() as u64),
+            ("user.missing".into(), payload.len() as u64),
+            ("user.sparse".into(), payload.len() as u64)
+        ]
+    );
+    let mut buf = [0xA5; 5];
+    assert_eq!(fs.read_xattr(file, "user.inline", 3, &mut buf).unwrap(), 3);
+    assert_eq!(&buf, b"ine\xA5\xA5");
+    assert_eq!(
+        fs.read_xattr(file, "user.stream", 4, &mut buf).unwrap(),
+        buf.len()
+    );
+    assert_eq!(&buf, &payload[4..9]);
+    assert_eq!(
+        fs.read_xattr(file, "user.missing", 0, &mut buf)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Corrupt
+    );
+    assert_eq!(&buf, &payload[4..9]);
+    assert_eq!(fs.read_xattr(file, "user.sparse", 0, &mut buf).unwrap(), 5);
+    assert_eq!(buf, [0; 5]);
+    assert_eq!(
+        fs.read_xattr(file, "user.stream", u64::MAX, &mut buf)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        fs.read_xattr(file, "USER.INLINE", 0, &mut buf)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn malformed_duplicate_symlink_target_is_corrupt() {
+    let mut fs = mount(duplicate_symlink_image());
+    let link = fs.lookup(fs.root(), Name::new("link")).unwrap();
+    assert_eq!(fs.stat(link).unwrap_err().kind(), ErrorKind::Corrupt);
+}
+
+#[test]
+fn volume_extent_preflight_follows_zero_byte_reads() {
+    let mut container = hadris_apfs::sync::Container::open(device(build_image())).unwrap();
+    let checkpoint = container.latest_superblock().unwrap();
+    let volume = &container.volume_superblocks(&checkpoint).unwrap()[0];
+    let extents = [block_extent(0, 1, IMAGE_BLOCKS as u64)];
+    let mut out = [0xA5];
+    assert_eq!(
+        container
+            .read_volume_extents_at(volume, &extents, 1, 1, &mut out)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        container
+            .read_volume_extents_at(volume, &extents, 1, 0, &mut [])
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        container
+            .read_volume_extents_at(volume, &extents, 1, 0, &mut out)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Corrupt
+    );
+    assert_eq!(out, [0xA5]);
+}
+
+#[cfg(feature = "compression")]
+#[test]
+fn oversized_inline_compression_fails_preflight_in_both_read_apis() {
+    let image = compressed_image(3, 4 * 1024 * 1024 + 1, &[], &[]);
+    let mut container = hadris_apfs::sync::Container::open(device(image.clone())).unwrap();
+    let checkpoint = container.latest_superblock().unwrap();
+    let volume = &container.volume_superblocks(&checkpoint).unwrap()[0];
+    assert_eq!(
+        container
+            .read_file(volume, 16, usize::MAX)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    let mut fs = mount(image);
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    assert_eq!(
+        fs.read(file, 0, &mut [0]).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+}
+
+#[test]
+fn snapshots_select_the_frozen_filesystem_by_name_and_xid() {
+    use hadris_apfs::SnapshotSelector;
+
+    let image = snapshot_image();
+    let mut live = mount(image.clone());
+    let root = live.root();
+    assert_eq!(
+        live.lookup(root, Name::new("file0.txt"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound
+    );
+    for selector in [SnapshotSelector::Name("before"), SnapshotSelector::Xid(1)] {
+        let mut snapshot =
+            ApfsFs::mount_snapshot(device(image.clone()), MountOptions::new(), None, selector)
+                .unwrap();
+        assert_eq!(
+            snapshot.volume_superblock().object.transaction_identifier,
+            1
+        );
+        let file = snapshot
+            .lookup(snapshot.root(), Name::new("file0.txt"))
+            .unwrap();
+        let mut out = [0; 64];
+        let n = snapshot.read(file, 0, &mut out).unwrap();
+        assert_eq!(&out[..n], file_contents(0));
+    }
+    let error = ApfsFs::mount_snapshot(
+        device(image.clone()),
+        MountOptions::new(),
+        None,
+        SnapshotSelector::Name("Before"),
+    )
+    .unwrap_err();
+    assert_eq!(error.error().kind(), ErrorKind::NotFound);
+    assert_eq!(error.into_device().into_inner(), image);
+}
+
+#[cfg(feature = "compression")]
+#[test]
+fn decmpfs_zlib_reads_inline_and_across_resource_chunks() {
+    use miniz_oxide::deflate::compress_to_vec_zlib;
+
+    let plain = b"a short compressed file";
+    let encoded = compress_to_vec_zlib(plain, 6);
+    let mut fs = mount(compressed_image(3, plain.len() as u64, &encoded, &[]));
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    assert_eq!(fs.stat(file).unwrap().len(), plain.len() as u64);
+    fs.open(file, OpenMode::Read).unwrap();
+    let mut out = [0; 32];
+    let read = fs.read(file, 8, &mut out).unwrap();
+    assert_eq!(&out[..read], &plain[8..]);
+
+    let chunk = compress_to_vec_zlib(&[b'A'; 65536], 6);
+    let tail = [0xFF, b'z', b'l', b'i', b'b'];
+    let mut resource = vec![0; 256];
+    resource[..4].copy_from_slice(&256u32.to_be_bytes());
+    let size = 20 + chunk.len() + tail.len();
+    resource[8..12].copy_from_slice(&((4 + size) as u32).to_be_bytes());
+    resource.extend_from_slice(&(size as u32).to_be_bytes());
+    resource.extend_from_slice(&2u32.to_le_bytes());
+    resource.extend_from_slice(&20u32.to_le_bytes());
+    resource.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+    resource.extend_from_slice(&((20 + chunk.len()) as u32).to_le_bytes());
+    resource.extend_from_slice(&(tail.len() as u32).to_le_bytes());
+    resource.extend_from_slice(&chunk);
+    resource.extend_from_slice(&tail);
+    let mut fs = mount(compressed_image(4, 65540, &[], &resource));
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    assert_eq!(fs.stat(file).unwrap().len(), 65540);
+    assert_eq!(fs.read(file, 65534, &mut out).unwrap(), 6);
+    assert_eq!(&out[..6], b"AAzlib");
+    assert_eq!(fs.read(file, 65540, &mut out).unwrap(), 0);
+
+    resource[256 + 8..256 + 12].copy_from_slice(&u32::MAX.to_le_bytes());
+    let mut fs = mount(compressed_image(4, 65540, &[], &resource));
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    assert_eq!(
+        fs.read(file, 0, &mut out).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+    let sibling = fs.lookup(fs.root(), Name::new("file1.txt")).unwrap();
+    let n = fs.read(sibling, 0, &mut out).unwrap();
+    assert_eq!(&out[..n], file_contents(1));
+}
+
+#[cfg(feature = "lzfse")]
+#[test]
+fn decmpfs_reads_lzvn_and_lzfse_streams() {
+    let lzvn = [0xe5, b'h', b'e', b'l', b'l', b'o', 6, 0, 0, 0, 0, 0, 0, 0];
+    let plain = vec![b'b'; 8192];
+    let mut lzfse = Vec::new();
+    lzfse_rust::encode_bytes(&plain, &mut lzfse).unwrap();
+    for (method, encoded, decoded) in [
+        (7, lzvn.as_slice(), b"hello".as_slice()),
+        (11, lzfse.as_slice(), &plain),
+    ] {
+        let mut fs = mount(compressed_image(method, decoded.len() as u64, encoded, &[]));
+        let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+        let mut out = [0; 4];
+        assert_eq!(fs.read(file, 1, &mut out).unwrap(), 4);
+        assert_eq!(&out, &decoded[1..5]);
+    }
+    let mut fork = 8u32.to_le_bytes().to_vec();
+    fork.extend_from_slice(&(8 + lzvn.len() as u32).to_le_bytes());
+    fork.extend_from_slice(&lzvn);
+    let mut fs = mount(compressed_image(8, 5, &[], &fork));
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    let mut out = [0; 8];
+    assert_eq!(fs.read(file, 2, &mut out).unwrap(), 3);
+    assert_eq!(&out[..3], b"llo");
+}
+
+#[test]
 fn vfs_cursors_ids_open_pins_and_random_reads() {
     let mut fs = mount(build_image());
     let root = fs.root();
@@ -478,16 +697,16 @@ fn damaged_records_mount_and_fail_only_their_own_node() {
 }
 
 #[test]
-fn symlinks_with_stream_targets_list_and_fail_readlink() {
+fn symlinks_with_malformed_stream_targets_list_and_fail_readlink() {
     let mut fs = mount(invalid_directory_image("symlink_stream"));
     let listed = listing(&mut fs);
     check_intact_files(&mut fs, &listed);
     let (_, node, kind) = listed.iter().find(|(name, ..)| name == b"link").unwrap();
     assert_eq!(*kind, FileType::Symlink);
-    assert_eq!(fs.stat(*node).unwrap_err().kind(), ErrorKind::Unsupported);
+    assert_eq!(fs.stat(*node).unwrap_err().kind(), ErrorKind::Corrupt);
     assert_eq!(
         fs.readlink(*node, &mut [0; 64]).unwrap_err().kind(),
-        ErrorKind::Unsupported
+        ErrorKind::Corrupt
     );
 }
 

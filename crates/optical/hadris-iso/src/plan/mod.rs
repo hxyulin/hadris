@@ -160,6 +160,8 @@ pub(crate) struct Plan {
     /// The block after the ISO data, where a backup GPT region starts.
     pub(crate) end_blocks: u64,
     pub(crate) total_blocks: u64,
+    /// The disc block written at byte zero of the output device.
+    pub(crate) output_start: u64,
     pub(crate) fill_gaps: bool,
     pub(crate) report: Report,
 }
@@ -623,6 +625,15 @@ impl Planner<'_> {
                 return Err(Detail::HybridBoot.error(ErrorKind::LimitExceeded));
             }
             if hybrid.scheme() == PartitionScheme::Gpt && hybrid.bootstrap().is_some() {
+                return Err(invalid(Detail::HybridBoot));
+            }
+            if hybrid.grub2_bootstrap()
+                && self
+                    .opts
+                    .el_torito()
+                    .and_then(|boot| boot.entries().first())
+                    .is_none_or(|entry| entry.platform() != Platform::X86)
+            {
                 return Err(invalid(Detail::HybridBoot));
             }
             if (hybrid.scheme() == PartitionScheme::Mbr && !appended.is_empty())
@@ -1513,7 +1524,8 @@ impl Planner<'_> {
                 .filter(|entry| entry.platform() == Platform::X86)
         {
             let (block, _) = self.entry_image(entry)?;
-            system[432..440].copy_from_slice(&(u64::from(block) * 4).to_le_bytes());
+            let address = u64::from(block) * 4 + if hybrid.grub2_bootstrap() { 4 } else { 0 };
+            system[432..440].copy_from_slice(&address.to_le_bytes());
         }
         let tail = (!tail.is_empty()).then_some((end, tail));
         Ok((system, tail))

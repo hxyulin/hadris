@@ -128,6 +128,8 @@ pub(crate) struct NonResident<'a> {
     pub(crate) runs: &'a [u8],
     pub(crate) data_size: u64,
     pub(crate) initialized_size: u64,
+    pub(crate) allocated_size: u64,
+    pub(crate) compression_shift: u8,
 }
 
 /// Where an attribute's value is.
@@ -265,6 +267,8 @@ impl<'a> Iterator for Attrs<'a> {
                 runs: &data[at + runs_offset..end],
                 data_size,
                 initialized_size,
+                allocated_size: u64_at(data, at + 0x28),
+                compression_shift: data[at + 0x22],
             })
         };
         self.offset = end;
@@ -535,6 +539,7 @@ pub(crate) fn index_node(buf: &[u8], header: usize) -> Result<IndexNode, Detail>
 pub(crate) struct IndexEntry<'a> {
     /// The file reference, or `None` for the last entry of the node.
     pub(crate) entry: Option<(u64, FileName<'a>)>,
+    pub(crate) child_vcn: Option<u64>,
     pub(crate) next: usize,
 }
 
@@ -543,7 +548,7 @@ pub(crate) struct IndexEntry<'a> {
 // @hadris-compliance partial
 // @hadris-tests record::tests::index_entries_are_bounded_by_the_node, read::large_directory_lists_every_entry
 // @hadris-fuzz ntfs_read
-// @hadris-note Every node is enumerated; child-node pointers are not followed for a keyed descent.
+// @hadris-note Listings enumerate index nodes. Lookup follows child VCNs in indexes with a file-name collation.
 pub(crate) fn index_entry<'a>(
     buf: &'a [u8],
     node: IndexNode,
@@ -559,15 +564,27 @@ pub(crate) fn index_entry<'a>(
     if len < 16 || len % 8 != 0 || next > node.end {
         return Err(Detail::Index);
     }
+    let child_vcn = if flags & raw::INDEX_ENTRY_SUBNODE == 0 {
+        None
+    } else if len >= 24 {
+        Some(u64_at(buf, next - 8))
+    } else {
+        return Err(Detail::Index);
+    };
     if flags & raw::INDEX_ENTRY_LAST != 0 {
-        return Ok(IndexEntry { entry: None, next });
+        return Ok(IndexEntry {
+            entry: None,
+            child_vcn,
+            next,
+        });
     }
-    if content == 0 || 16 + content > len {
+    if content == 0 || 16 + content + 8 * usize::from(child_vcn.is_some()) > len {
         return Err(Detail::Index);
     }
     let name = file_name(&buf[at + 16..at + 16 + content])?;
     Ok(IndexEntry {
         entry: Some((u64_at(buf, at), name)),
+        child_vcn,
         next,
     })
 }
@@ -603,6 +620,65 @@ pub(crate) fn utf16_to_utf8(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
         len = end;
     }
     Some(len)
+}
+
+/// The largest Windows reparse buffer, including its header.
+pub(crate) const MAX_REPARSE: usize = 16 * 1024;
+
+pub(crate) struct ReparseLink {
+    pub(crate) target: core::ops::Range<usize>,
+    pub(crate) relative: bool,
+}
+
+impl ReparseLink {
+    pub(crate) fn parse(value: &[u8], size: usize, tag: u32) -> Result<Self, Detail> {
+        let header = if tag == raw::IO_REPARSE_TAG_SYMLINK {
+            20
+        } else {
+            16
+        };
+        if value.len() < header || u32_at(value, 0) != tag {
+            return Err(Detail::ReparseLink);
+        }
+        let end = 8 + usize::from(u16_at(value, 4));
+        if end < header || end > size {
+            return Err(Detail::ReparseLink);
+        }
+        let path = |at| {
+            let offset = usize::from(u16_at(value, at));
+            let len = usize::from(u16_at(value, at + 2));
+            let start = header + offset;
+            let stop = start + len;
+            if offset % 2 != 0 || len % 2 != 0 || stop > end {
+                return Err(Detail::ReparseLink);
+            }
+            Ok(start..stop)
+        };
+        let target = path(8)?;
+        path(12)?;
+        if target.is_empty() {
+            return Err(Detail::ReparseLink);
+        }
+        let relative = if tag == raw::IO_REPARSE_TAG_SYMLINK {
+            match u32_at(value, 16) {
+                0 => false,
+                1 => true,
+                _ => return Err(Detail::ReparseLink),
+            }
+        } else {
+            false
+        };
+        Ok(Self { target, relative })
+    }
+
+    pub(crate) fn chars(bytes: &[u8]) -> impl Iterator<Item = Result<char, Detail>> + '_ {
+        char::decode_utf16(bytes.chunks_exact(2).map(|unit| u16_at(unit, 0))).map(|decoded| {
+            match decoded {
+                Ok(c) if c != '\0' => Ok(c),
+                _ => Err(Detail::ReparseLink),
+            }
+        })
+    }
 }
 
 /// Converts an NTFS time, 100 ns units since 1601-01-01 UTC, or `None` for

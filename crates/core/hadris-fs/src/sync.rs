@@ -31,7 +31,9 @@ pub use api::contract;
 #[cfg(feature = "alloc")]
 pub use api::{ContentReader, copy_tree};
 #[cfg(feature = "std")]
-pub use api::{File, ReadDir, Volume, VolumeGuard, WalkDir, WalkDirEntry, read_tree};
+pub use api::{
+    File, ReadDir, Volume, VolumeGuard, WalkDir, WalkDirEntry, read_tree, read_tree_with_options,
+};
 pub use api::{FileSystem, Walk};
 
 /// The lock of a sync `Volume`: `std::sync::Mutex`, which a panic while

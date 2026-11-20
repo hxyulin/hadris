@@ -67,6 +67,9 @@ fn volume_info_is_an_owned_snapshot_in_both_modes() {
     assert_eq!(info.mft_record_size(), 1024);
     assert_eq!(info.index_record_size(), 1024);
     assert_eq!(info.total_sectors(), 512);
+    assert_eq!(info.was_dirty(), None);
+    assert_eq!(info.was_hibernated(), Some(false));
+    assert!(!info.used_mft_mirror());
     let _device = fs.unmount().unwrap();
     assert_eq!(info.volume_serial(), 0x1122_3344_5566_7788);
 
@@ -79,6 +82,74 @@ fn volume_info_is_an_owned_snapshot_in_both_modes() {
         .unwrap();
         assert_eq!(fs.info(), info);
     }
+}
+
+#[test]
+fn mount_falls_back_to_the_mft_mirror() {
+    let mut image = base_image();
+    let mft = MFT_LCN * SECTOR;
+    let mirror = 500 * SECTOR;
+    image.copy_within(mft..mft + REC, mirror);
+    image[56..64].copy_from_slice(&500u64.to_le_bytes());
+    let mut bad_mapping = image.clone();
+    let run = bad_mapping[mft..mft + REC]
+        .windows(4)
+        .position(|pair| pair == [0x11, (MFT_RECORDS * REC / SECTOR) as u8, MFT_LCN as u8, 0])
+        .unwrap();
+    bad_mapping[mft + run + 1] = 0;
+    let mut recovered = open(bad_mapping);
+    assert!(recovered.info().used_mft_mirror());
+    assert_eq!(recovered.read_to_vec("/HELLO.TXT").unwrap(), b"hello ntfs");
+    image[mft + SECTOR - 2] ^= 1;
+
+    let mut fs = open(image.clone());
+    assert!(fs.info().used_mft_mirror());
+    assert_eq!(fs.read_to_vec("/HELLO.TXT").unwrap(), b"hello ntfs");
+    assert!(fs.metadata("/$MFT").is_ok());
+
+    #[cfg(feature = "async")]
+    block_on(async {
+        let fs = hadris_ntfs::async_::NtfsFs::mount(device(image.clone()), MountOptions::new())
+            .await
+            .unwrap();
+        assert!(fs.info().used_mft_mirror());
+    });
+
+    image[mirror..mirror + 4].fill(0);
+    assert_eq!(Detail::of(&open_err(image)), Some(Detail::UpdateSequence));
+}
+
+#[test]
+fn mount_reports_dirty_and_hibernated_without_refusing_read_access() {
+    let mut image = base_image();
+    put(
+        &mut image,
+        raw::RECORD_VOLUME,
+        &file_record(
+            FILE,
+            &[resident(
+                raw::ATTR_VOLUME_INFORMATION,
+                &[],
+                &[0, 0, 0, 0, 0, 0, 0, 0, 3, 1, 1, 0],
+            )],
+        ),
+    );
+    let mut entries = index_entry(16, "hiberfil.sys", false, raw::FILE_NAME_WIN32);
+    entries.extend(last_entry());
+    put(
+        &mut image,
+        raw::RECORD_ROOT,
+        &file_record(DIR, &[index_root(&entries, 1024)]),
+    );
+    put(
+        &mut image,
+        16,
+        &file_record(FILE, &[resident(raw::ATTR_DATA, &[], b"hibr")]),
+    );
+
+    let info = open(image).info();
+    assert_eq!(info.was_dirty(), Some(true));
+    assert_eq!(info.was_hibernated(), Some(true));
 }
 
 #[test]
@@ -243,6 +314,77 @@ fn index_blocks_are_listed_through_the_bitmap() {
 
     let mut fs = open(allocation_image(1024, &[0x03], None));
     assert_eq!(list(&mut fs, "/SUBDIR"), ["A.TXT", "B.TXT", "UNUSED.TXT"]);
+}
+
+fn index_child(mut entry: Vec<u8>, vcn: u64) -> Vec<u8> {
+    let len = (entry.len() + 8) as u16;
+    let flags = u32::from_le_bytes(entry[12..16].try_into().unwrap()) | raw::INDEX_ENTRY_SUBNODE;
+    entry[8..10].copy_from_slice(&len.to_le_bytes());
+    entry[12..16].copy_from_slice(&flags.to_le_bytes());
+    entry.extend_from_slice(&vcn.to_le_bytes());
+    entry
+}
+
+#[test]
+fn keyed_lookup_descends_only_the_relevant_index_blocks() {
+    let mut left = index_entry(19, "A.TXT", false, raw::FILE_NAME_WIN32);
+    left.extend(last_entry());
+    let mut right = index_entry(21, "m.txt", false, raw::FILE_NAME_WIN32);
+    right.extend(last_entry());
+    let mut right = indx(&right);
+    right[0x10..0x18].copy_from_slice(&2u64.to_le_bytes());
+    let mut image = allocation_image(1024, &[3], Some([indx(&left), right]));
+    let mut entries = index_child(index_entry(20, "M.TXT", false, raw::FILE_NAME_POSIX), 0);
+    entries.extend(index_child(last_entry(), 2));
+    let mut root = index_root(&entries, 1024);
+    let value = usize::from(u16::from_le_bytes(root[20..22].try_into().unwrap()));
+    root[value + 0x1C] = 1;
+    let size = (2 * REC) as u64;
+    let attributes = [
+        named(5, "SUBDIR", true),
+        root,
+        non_resident(
+            raw::ATTR_INDEX_ALLOCATION,
+            &raw::I30,
+            size / 512 - 1,
+            size,
+            size,
+            &[0x21, 4, INDX_LCN as u8, 0, 0],
+        ),
+        resident(raw::ATTR_BITMAP, &raw::I30, &[3]),
+    ];
+    put(&mut image, 17, &file_record(DIR, &attributes));
+
+    let mut fs = open(image.clone());
+    let dir = fs.lookup(fs.root(), name("SUBDIR")).unwrap();
+    assert_eq!(fs.lookup(dir, name("a.txt")).unwrap().get(), reference(19));
+    assert_eq!(fs.lookup(dir, name("M.TXT")).unwrap().get(), reference(20));
+    assert_eq!(fs.lookup(dir, name("m.txt")).unwrap().get(), reference(21));
+    assert_eq!(fs.lookup(dir, name("M.Txt")).unwrap().get(), reference(21));
+
+    image[INDX_LCN * SECTOR + REC] ^= 1;
+    let mut tied = image.clone();
+    let mut left = index_entry(19, "M.Txt", false, raw::FILE_NAME_POSIX);
+    left.extend(last_entry());
+    tied[INDX_LCN * SECTOR..INDX_LCN * SECTOR + REC].copy_from_slice(&indx(&left));
+    let mut fs = open(tied);
+    let dir = fs.lookup(fs.root(), name("SUBDIR")).unwrap();
+    assert_eq!(fs.lookup(dir, name("M.Txt")).unwrap().get(), reference(19));
+    assert_eq!(
+        fs.lookup(dir, name("m.txt")).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+
+    let mut fs = open(image);
+    let dir = fs.lookup(fs.root(), name("SUBDIR")).unwrap();
+    assert_eq!(
+        fs.lookup(dir, name("b.txt")).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(
+        fs.lookup(dir, name("z.txt")).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
 }
 
 #[test]
@@ -695,7 +837,7 @@ fn index_roots_in_extension_records_are_followed() {
 }
 
 #[test]
-fn compressed_and_encrypted_streams_are_unsupported() {
+fn unsupported_compression_and_encryption_are_reported() {
     for flag in [raw::ATTR_FLAG_COMPRESSED, raw::ATTR_FLAG_ENCRYPTED] {
         let mut image = base_image();
         let mut bin = non_resident(
@@ -721,12 +863,93 @@ fn compressed_and_encrypted_streams_are_unsupported() {
     }
 }
 
+fn compressed_attribute(mut attr: Vec<u8>, allocated: u64) -> Vec<u8> {
+    attr[0x0C..0x0E].copy_from_slice(&raw::ATTR_FLAG_COMPRESSED.to_le_bytes());
+    attr[0x22] = 4;
+    attr[0x28..0x30].copy_from_slice(&allocated.to_le_bytes());
+    attr
+}
+
+#[test]
+fn lznt1_reads_compressed_sparse_and_stored_units_at_offsets() {
+    let mut image = base_image();
+    let unit = 16 * SECTOR;
+    let lcn = 130;
+    let data_at = lcn * SECTOR;
+    let stored_at = (lcn + 16) * SECTOR;
+    let packed = [
+        0x03, 0xB0, 0x02, b'A', 0xFC, 0x0F, 0x03, 0xB0, 0x02, b'B', 0xFC, 0x0F,
+    ];
+    image[data_at..data_at + packed.len()].copy_from_slice(&packed);
+    image[stored_at..stored_at + unit].fill(b'C');
+    let runs = [0x21, 1, lcn as u8, 0, 0x01, 31, 0x11, 16, 16, 0];
+    let size = (unit * 3) as u64;
+    let initialized = (unit * 2 + 3000) as u64;
+    let data = compressed_attribute(
+        non_resident(raw::ATTR_DATA, &[], 47, size, initialized, &runs),
+        size,
+    );
+    put(
+        &mut image,
+        18,
+        &file_record(FILE, &[named(5, "BIN.DAT", false), data]),
+    );
+    let mut fs = open(image.clone());
+    let file = fs.lookup(fs.root(), name("BIN.DAT")).unwrap();
+    let mut range = [0; 20];
+    assert_eq!(fs.read(file, 4090, &mut range).unwrap(), 20);
+    assert_eq!(&range[..6], &[b'A'; 6]);
+    assert_eq!(&range[6..], &[b'B'; 14]);
+    let bytes = fs.read_to_vec("/BIN.DAT").unwrap();
+    assert_eq!(bytes.len(), size as usize);
+    assert_eq!(&bytes[..4096], &[b'A'; 4096]);
+    assert_eq!(&bytes[4096..unit], &[b'B'; 4096]);
+    assert_eq!(&bytes[unit..unit * 2], &[0; 8192]);
+    assert_eq!(&bytes[unit * 2..initialized as usize], &[b'C'; 3000]);
+    assert!(bytes[initialized as usize..].iter().all(|&byte| byte == 0));
+    image[data_at + 5] = 0xF0;
+    let mut fs = open(image);
+    let file = fs.lookup(fs.root(), name("BIN.DAT")).unwrap();
+    assert_eq!(
+        Detail::of(&fs.read(file, 0, &mut range).unwrap_err()),
+        Some(Detail::CompressionData)
+    );
+}
+
+#[test]
+fn lznt1_units_can_span_attribute_list_extents() {
+    let mut image = base_image();
+    let size = 8192;
+    let first = non_resident(raw::ATTR_DATA, &[], 0, size, size, &[0x21, 1, 130, 0, 0]);
+    let first = with_id(compressed_attribute(first, size), 1);
+    let second = non_resident(raw::ATTR_DATA, &[], 15, 0, 0, &[0x01, 15, 0]);
+    let second = starting_at(compressed_attribute(second, 0), 1);
+    let mut entries = list_entry(raw::ATTR_FILE_NAME, &[], 0, 18, 2);
+    entries.extend(list_entry(raw::ATTR_DATA, &[], 0, 18, 1));
+    entries.extend(list_entry(raw::ATTR_DATA, &[], 1, 22, 0));
+    let list = resident(raw::ATTR_ATTRIBUTE_LIST, &[], &entries);
+    put(
+        &mut image,
+        18,
+        &file_record(FILE, &[list, with_id(named(5, "BIN.DAT", false), 2), first]),
+    );
+    put(&mut image, 22, &file_record(FILE, &[second]));
+    let packed = [
+        0x03, 0xB0, 0x02, b'A', 0xFC, 0x0F, 0x03, 0xB0, 0x02, b'B', 0xFC, 0x0F,
+    ];
+    image[130 * SECTOR..130 * SECTOR + packed.len()].copy_from_slice(&packed);
+    let mut fs = open(image);
+    let bytes = fs.read_to_vec("/BIN.DAT").unwrap();
+    assert_eq!(&bytes[..4096], &[b'A'; 4096]);
+    assert_eq!(&bytes[4096..], &[b'B'; 4096]);
+}
+
 #[test]
 fn wof_and_dedup_reparse_points_are_unsupported() {
     for (tag, unsupported) in [
         (raw::IO_REPARSE_TAG_WOF, true),
         (raw::IO_REPARSE_TAG_DEDUP, true),
-        (0xA000_000C, false),
+        (0x8000_001B, false),
     ] {
         let mut image = base_image();
         let bin = non_resident(
@@ -755,6 +978,124 @@ fn wof_and_dedup_reparse_points_are_unsupported() {
             assert_eq!(result.unwrap(), b"bin");
         }
     }
+}
+
+fn reparse_link(tag: u32, relative: bool, target: &str) -> Vec<u8> {
+    let target = utf16(target);
+    let mut value = vec![
+        0;
+        if tag == raw::IO_REPARSE_TAG_SYMLINK {
+            20
+        } else {
+            16
+        }
+    ];
+    let data_len = (value.len() - 8 + target.len()) as u16;
+    value[..4].copy_from_slice(&tag.to_le_bytes());
+    value[4..6].copy_from_slice(&data_len.to_le_bytes());
+    value[10..12].copy_from_slice(&(target.len() as u16).to_le_bytes());
+    if relative {
+        value[16] = 1;
+    }
+    value.extend(target);
+    resident(raw::ATTR_REPARSE_POINT, &[], &value)
+}
+
+#[test]
+fn reparse_links_keep_windows_targets_separate_from_volume_paths() {
+    let mut image = base_image();
+    put(
+        &mut image,
+        18,
+        &file_record(
+            FILE,
+            &[
+                named(5, "BIN.DAT", false),
+                reparse_link(raw::IO_REPARSE_TAG_SYMLINK, true, r".\HELLO.TXT"),
+            ],
+        ),
+    );
+    put(
+        &mut image,
+        17,
+        &file_record(
+            DIR,
+            &[
+                named(5, "SUBDIR", true),
+                reparse_link(raw::IO_REPARSE_TAG_MOUNT_POINT, false, r"\??\D:\docs"),
+            ],
+        ),
+    );
+    let mut fs = open(image);
+    let root = fs.root();
+    let file = fs.lookup(root, name("BIN.DAT")).unwrap();
+    assert_eq!(fs.stat(file).unwrap().file_type(), FileType::Symlink);
+    let mut buf = [0; 64];
+    assert_eq!(fs.readlink(file, &mut buf).unwrap(), b"./HELLO.TXT");
+    assert_eq!(fs.stat(file).unwrap().len(), 11);
+    let hello = fs.lookup(root, name("HELLO.TXT")).unwrap();
+    assert_eq!(
+        hadris_fs::sync::FileSystem::resolve(&mut fs, b"/BIN.DAT", hadris_fs::Resolve::Follow)
+            .unwrap(),
+        hello
+    );
+    assert_eq!(
+        fs.readlink(file, &mut buf[..2]).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+    assert_eq!(
+        fs.read(file, 0, &mut buf).unwrap_err().kind(),
+        ErrorKind::Symlink
+    );
+    let junction = fs.lookup(root, name("SUBDIR")).unwrap();
+    assert_eq!(fs.stat(junction).unwrap().file_type(), FileType::Symlink);
+    assert_eq!(
+        fs.read_windows_link(junction, &mut buf).unwrap(),
+        r"\??\D:\docs"
+    );
+    assert_eq!(
+        fs.readlink(junction, &mut buf).unwrap_err().kind(),
+        ErrorKind::Unsupported
+    );
+    let vol = hadris_fs::sync::Volume::new(fs);
+    assert_eq!(
+        hadris_fs::sync::read_tree(&vol, "/").err().unwrap().kind(),
+        ErrorKind::Unsupported
+    );
+    let options = hadris_fs::ReadTreeOptions::new().with_skip_unsupported_symlinks(true);
+    let tree = hadris_fs::sync::read_tree_with_options(&vol, "/", options).unwrap();
+    assert!(tree.get("SUBDIR").is_none());
+    assert!(tree.get("HELLO.TXT").is_some());
+    assert_eq!(
+        tree.get("BIN.DAT").unwrap().target(),
+        Some(&b"./HELLO.TXT"[..])
+    );
+}
+
+#[test]
+fn a_malformed_link_is_listed_but_fails_validation() {
+    let mut image = base_image();
+    let mut reparse = reparse_link(raw::IO_REPARSE_TAG_SYMLINK, true, "HELLO.TXT");
+    reparse[24 + 8] = 1;
+    put(
+        &mut image,
+        18,
+        &file_record(FILE, &[named(5, "BIN.DAT", false), reparse]),
+    );
+    let mut fs = open(image);
+    let node = fs.lookup(fs.root(), name("BIN.DAT")).unwrap();
+    assert_eq!(
+        Detail::of(&fs.stat(node).unwrap_err()),
+        Some(Detail::ReparseLink)
+    );
+    let entries = fs.entries("/").unwrap();
+    assert!(
+        !entries
+            .iter()
+            .find(|entry| entry.node() == node)
+            .unwrap()
+            .has_complete_metadata()
+    );
 }
 
 #[test]

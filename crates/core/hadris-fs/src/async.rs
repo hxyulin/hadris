@@ -36,7 +36,9 @@ pub use api::contract;
 #[cfg(feature = "alloc")]
 pub use api::{ContentReader, copy_tree};
 #[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
-pub use api::{File, ReadDir, Volume, VolumeGuard, WalkDir, WalkDirEntry, read_tree};
+pub use api::{
+    File, ReadDir, Volume, VolumeGuard, WalkDir, WalkDirEntry, read_tree, read_tree_with_options,
+};
 pub use api::{FileSystem, Walk};
 
 #[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]

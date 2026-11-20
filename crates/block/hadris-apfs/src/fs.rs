@@ -208,7 +208,8 @@ io_transform! {
 /// filesystem tree. File data is read with one APFS block of scratch space
 /// regardless of file length. `MountOptions::with_node_limit` caps how many
 /// nodes may be held; an operation that needs one more fails with
-/// `LimitExceeded`. Compression, encryption and snapshots remain unsupported.
+/// `LimitExceeded`. Optional features enable compression and software-encrypted
+/// volumes.
 ///
 /// A record that cannot be used damages only its node: the entry is listed
 /// with the type its directory record holds, and `stat`, `open`, `read` and
@@ -242,7 +243,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// return errors. The device is retained in [`MountError`].
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all))]
     pub async fn mount(device: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, None, None).await
+        Self::mount_selected(device, options, None, None, None).await
     }
 
     /// Mounts exactly one volume selected by index, object identifier, UUID or
@@ -261,7 +262,24 @@ impl<D: BlockDevice> ApfsFs<D> {
         options: MountOptions,
         selector: VolumeSelector<'_>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, Some(selector), None).await
+        Self::mount_selected(device, options, Some(selector), None, None).await
+    }
+
+    /// Mounts a named snapshot or transaction of an unencrypted volume.
+    ///
+    /// With no volume selector, the container must have exactly one
+    /// volume. Subsequent lookups and reads use the snapshot's transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] for a missing volume or snapshot,
+    /// [`ErrorKind::InvalidInput`] for ambiguous volume selection, or an
+    /// error for unsupported features, damaged metadata, or device failures.
+    /// All failures retain the device in [`MountError`].
+    pub async fn mount_snapshot(
+        device: D, options: MountOptions, selector: Option<VolumeSelector<'_>>, snapshot: crate::SnapshotSelector<'_>,
+    ) -> Result<Self, MountError<D, D::Error>> {
+        Self::mount_selected(device, options, selector, None, Some(snapshot)).await
     }
 
     /// Mounts the sole software-encrypted, single-key volume using a password.
@@ -287,7 +305,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         password: &[u8],
         crypto_user: Option<[u8; 16]>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, None, Some((password, crypto_user))).await
+        Self::mount_selected(device, options, None, Some((password, crypto_user)), None).await
     }
 
     /// Mounts an explicitly selected software-encrypted volume using a password.
@@ -310,7 +328,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         password: &[u8],
         crypto_user: Option<[u8; 16]>,
     ) -> Result<Self, MountError<D, D::Error>> {
-        Self::mount_selected(device, options, Some(selector), Some((password, crypto_user))).await
+        Self::mount_selected(device, options, Some(selector), Some((password, crypto_user)), None).await
     }
 
     async fn mount_selected(
@@ -318,6 +336,7 @@ impl<D: BlockDevice> ApfsFs<D> {
         options: MountOptions,
         selector: Option<VolumeSelector<'_>>,
         credentials: Option<(&[u8], Option<[u8; 16]>)>,
+        snapshot: Option<crate::SnapshotSelector<'_>>,
     ) -> Result<Self, MountError<D, D::Error>> {
         let mut container = Container::open(device).await?;
         let selected = match Self::select_volume(&mut container, selector, credentials).await {
@@ -325,6 +344,12 @@ impl<D: BlockDevice> ApfsFs<D> {
             Err(error) => return Err(MountError::new(error, container.into_inner())),
         };
         let (checkpoint, volume) = selected;
+        let volume = if let Some(snapshot) = snapshot {
+            match container.snapshot_superblock(&volume, snapshot).await {
+                Ok(volume) => volume,
+                Err(error) => return Err(MountError::new(error, container.into_inner())),
+            }
+        } else { volume };
         let mut fs = Self {
             container,
             checkpoint,
@@ -401,6 +426,8 @@ impl<D: BlockDevice> ApfsFs<D> {
     }
 
     /// The selected volume superblock, including its UUID, name and slot.
+    /// On a snapshot mount, its object map address is taken from the live
+    /// volume and resolved at the snapshot's transaction.
     pub const fn volume_superblock(&self) -> &VolumeSuperblock {
         &self.volume
     }
@@ -565,29 +592,18 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Reads a symlink's target attribute. A duplicated target damages the
     /// node.
     async fn read_symlink(&mut self, inode: u64) -> FsResult<Option<(u16, Vec<u8>)>, D::Error> {
-        let mut target: Option<(u16, Vec<u8>)> = None;
-        let mut duplicate = false;
-        for entry in self
-            .container
-            .filesystem_records(&self.volume, inode, filesystem::FS_TYPE_XATTR)
-            .await?
-        {
-            let Ok(xattr) = XattrRecord::parse(&entry.key, &entry.value) else {
-                continue;
-            };
-            if xattr.name != filesystem::SYMLINK_XATTR_NAME {
-                continue;
+        let mut target = None;
+        for entry in self.container.filesystem_records(&self.volume, inode, filesystem::FS_TYPE_XATTR).await? {
+            if XattrRecord::parse_key(&entry.key).is_ok_and(|(_, name)| name == filesystem::SYMLINK_XATTR_NAME)
+                && target.replace(entry).is_some()
+            {
+                return Err(self.nodes.damage(inode, "duplicate APFS symlink target"));
             }
-            if target.is_some() {
-                duplicate = true;
-                continue;
-            }
-            target = Some((xattr.flags, xattr.data.to_vec()));
         }
-        if duplicate {
-            return Err(self.nodes.damage(inode, "duplicate APFS symlink target"));
-        }
-        Ok(target)
+        target.map(|entry| {
+            let target = XattrRecord::parse(&entry.key, &entry.value)?;
+            Ok((target.flags, target.data.to_vec()))
+        }).transpose()
     }
 
     /// Reads a symlink's target attribute on first use and holds it for the
@@ -653,7 +669,10 @@ impl<D: BlockDevice> ApfsFs<D> {
             .with_changed(timestamp::<D::Error>(inode.change_time_ns)?)
             .with_accessed(timestamp::<D::Error>(inode.access_time_ns)?)
             .with_nlink(if kind.is_dir() { 1 } else { u64::try_from(inode.link_or_child_count).map_err(|_| ErrorKind::Corrupt)?.max(1) });
-        if kind.is_file() {
+        if kind.is_file() && inode.is_compressed() {
+            let (header, _) = self.container.compression_attribute(&self.volume, inode.id).await?;
+            metadata = metadata.with_len(header.size);
+        } else if kind.is_file() {
             let (len, allocated) = if keep {
                 self.load_extents(inode).await?;
                 extent_sizes(inode, self.nodes.extents(inode.private_id))?
@@ -819,6 +838,36 @@ impl<D: BlockDevice> ApfsFs<D> {
         self.metadata(&inode, true).await
     }
 
+    /// Visits the names and value sizes in bytes of a node's extended attributes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid node, malformed attribute records,
+    /// or a device failure. Previously visited attributes remain reported.
+    pub async fn xattrs(&mut self, node: NodeId, mut visit: impl FnMut(&str, u64)) -> FsResult<(), D::Error> {
+        self.inode(node).await?;
+        let entries = self.container.filesystem_records(&self.volume, node.get(), filesystem::FS_TYPE_XATTR).await?;
+        for entry in &entries {
+            let attr = XattrRecord::parse(&entry.key, &entry.value)?;
+            visit(attr.name, attr.len());
+        }
+        Ok(())
+    }
+
+    /// Reads an extended attribute at byte `offset`. Returns zero at EOF.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::NotFound`] if the node has no attribute with
+    /// this exact name. Invalid nodes, malformed values, and device
+    /// failures also return errors.
+    pub async fn read_xattr(&mut self, node: NodeId, name: &str, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        self.inode(node).await?;
+        let entry = self.container.xattr_entry(&self.volume, node.get(), name).await?.ok_or(ErrorKind::NotFound)?;
+        let attr = XattrRecord::parse(&entry.key, &entry.value)?;
+        self.container.read_xattr_value(&self.volume, &attr, offset, buf).await
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::apfs", level = "trace", skip_all, fields(dir = ?dir)))]
     /// Performs the [`FileSystem::readdir`] operation.
     ///
@@ -842,12 +891,13 @@ impl<D: BlockDevice> ApfsFs<D> {
             .ok_or(ErrorKind::LimitExceeded)?;
         let node = NodeId::new(file_id).ok_or(ErrorKind::Corrupt)?;
         let metadata = self.listed_metadata(dir.get(), file_id, flags).await;
-        let metadata = match metadata {
-            Ok(metadata) => metadata,
+        let (metadata, complete) = match metadata {
+            Ok(metadata) => (metadata, true),
             Err(error) if is_resource(error.kind()) => return Err(error),
-            Err(_) => damaged(flags),
+            Err(_) => (damaged(flags), false),
         };
         DirEntry::new(Name::new(&name), node, metadata, DirCursor::from_raw(next))
+            .map(|entry| if complete { entry.with_complete_metadata() } else { entry })
             .map(Some)
             .map_err(|error| match error {
                 NameError::TooLong => ErrorKind::NameTooLong.into(),
@@ -880,7 +930,7 @@ impl<D: BlockDevice> ApfsFs<D> {
     ///
     /// Returns [`ErrorKind::IsADirectory`] for a directory, [`ErrorKind::Symlink`]
     /// for a symlink, [`ErrorKind::ReadOnly`] for write access, or
-    /// [`ErrorKind::Unsupported`] for compressed files or other file types. Inode and
+    /// [`ErrorKind::Unsupported`] for unsupported compression or other file types. Inode and
     /// device read errors propagate.
     pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let inode = self.inode(node).await?;
@@ -891,7 +941,12 @@ impl<D: BlockDevice> ApfsFs<D> {
             _ => return Err(ErrorKind::Unsupported.into()),
         }
         if mode == OpenMode::Write { return Err(ErrorKind::ReadOnly.into()); }
-        if inode.is_compressed() { return Err(crate::ApfsError::Unsupported("compressed file data").into()); }
+        if inode.is_compressed() {
+            #[cfg(not(feature = "compression"))]
+            return Err(crate::ApfsError::Unsupported("compressed file data").into());
+            #[cfg(feature = "compression")]
+            self.container.compression_attribute(&self.volume, inode.id).await?.0.encoding()?;
+        }
         Ok(())
     }
 
@@ -925,7 +980,15 @@ impl<D: BlockDevice> ApfsFs<D> {
             FileType::File => {},
             _ => return Err(ErrorKind::Unsupported.into()),
         }
-        if inode.is_compressed() { return Err(crate::ApfsError::Unsupported("compressed file data").into()); }
+        if inode.is_compressed() {
+            #[cfg(not(feature = "compression"))]
+            return Err(crate::ApfsError::Unsupported("compressed file data").into());
+            #[cfg(feature = "compression")]
+            {
+                let (header, entry) = self.container.compression_attribute(&self.volume, inode.id).await?;
+                return self.container.read_compressed_at(&self.volume, inode.id, header, &entry, offset, buf).await;
+            }
+        }
         self.load_extents(&inode).await?;
         let extents = self.nodes.extents(inode.private_id);
         // `load_extents` checked these extents, so only the range is read.

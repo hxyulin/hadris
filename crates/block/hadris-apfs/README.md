@@ -105,8 +105,9 @@ is set still enables both, as the on-disk rules require.
 
 - The reader is read-only. Creating, modifying and repairing volumes are not
   supported.
-- Compressed files (`decmpfs`) are reported as
-  `ErrorKind::Unsupported` rather than decoded.
+- The `compression` feature reads zlib and stored `decmpfs` data. The
+  `lzfse` feature also reads LZVN and LZFSE. Resource forks are decoded in
+  64 KiB chunks. Other methods return `ErrorKind::Unsupported`.
 - Software encryption requires the `encryption` feature and a password mount.
   Secure Enclave/hardware encryption, per-file keys and encryption rolling are
   not qualified. Keybags are capped at 1 MiB and 256 records, and the entire
@@ -114,8 +115,10 @@ is set still enables both, as the on-disk rules require.
 - Name comparison uses the Unicode default case folding and canonical
   decomposition rather than Apple's unpublished tables, so a name that
   differs only where the two disagree may not match.
-- Snapshots, Fusion tier-2 devices, extended attributes other than symlink
-  targets, and named data streams are not exposed.
+- `ApfsFs::xattrs` and `read_xattr` expose inline and stream-backed
+  extended attributes. `ApfsFs::mount_snapshot` accepts a snapshot name
+  or transaction identifier on an unencrypted volume. Fusion tier-2
+  devices and named file data streams are not exposed.
 - Native container path lookup walks the filesystem tree; a keyed query reads
   only the nodes whose key range can hold the records it wants. The mounted
   driver reads a node's records when an operation first needs them and keeps
@@ -182,6 +185,8 @@ APFS partition first, for example with `hadris-part`.
 | `sync`  | Yes     | Synchronous readers in `hadris_apfs::sync` |
 | `async` | No      | Unified asynchronous readers in `hadris_apfs::async_` |
 | `encryption` | No | Password-based software FileVault unlocking; implies `alloc` |
+| `compression` | No | Stored and zlib-compressed files; implies `alloc` |
+| `lzfse` | No | LZVN and LZFSE compression; implies `compression` and `std` |
 | `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
 
 ## Tracing

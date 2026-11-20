@@ -892,7 +892,8 @@ impl View {
                     self.stat(dev, node).await?
                 };
                 let next = DirCursor::from_raw(u64::from(pos));
-                return Ok(Some(DirEntry::new(Name::new(&out[..listed.len]), node, meta, next)?));
+                let entry = DirEntry::new(Name::new(&out[..listed.len]), node, meta, next)?;
+                return Ok(Some(if listed.damaged { entry } else { entry.with_complete_metadata() }));
             }
         }
         Ok(None)

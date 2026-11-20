@@ -100,6 +100,8 @@ pub use mount::{Durability, MountOptions};
 pub use name::OwnedName;
 pub use name::{Name, NameBuf, NameError};
 pub use node::{FileType, NodeId};
+#[cfg(feature = "alloc")]
+pub use ops::ReadTreeOptions;
 pub use ops::{DeviceNumber, OpenMode, OpenOptions, OpenOptionsError, RenameMode, Resolve};
 #[cfg(feature = "alloc")]
 pub use report::{Report, Warning, WarningKind};

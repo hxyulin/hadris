@@ -55,15 +55,20 @@ references, so they are stable and hard links share one.
 
 - The filesystem is read-only; the write methods of `FileSystem` fail with
   `ReadOnly`.
-- `$MFTMirr` is not used to recover unreadable MFT records, and the `$Mft`
-  bitmap is not consulted.
-- Compressed and encrypted streams fail with `Unsupported`.
-- Reparse points (symbolic links, junctions) are shown as ordinary files and
-  directories.
+- The driver uses `$MFTMirr` to recover record zero. It does not consult the
+  `$Mft` bitmap.
+- LZNT1-compressed streams are decoded when read. Encrypted streams and
+  streams whose payload is stored by WOF or Data Deduplication return
+  `Unsupported`.
+- Symbolic links and junctions appear as symlinks. `read_windows_link`
+  returns the original Windows target. The shared resolver follows targets
+  relative to the mounted volume.
 - Security descriptors are not read.
-- Lookups scan the directory index instead of descending its B-tree by key.
+- Lookups descend the file-name index by key when it links child nodes.
+  Unlinked indexes still use a bitmap scan.
 - `$LogFile` is not replayed, so a volume that was not cleanly unmounted may
-  read inconsistently.
+  read inconsistently. `NtfsFs::info()` reports the dirty flag, hibernation
+  status, and whether the driver used the MFT mirror.
 
 ## Feature flags
 

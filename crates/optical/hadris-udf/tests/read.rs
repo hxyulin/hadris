@@ -65,6 +65,257 @@ fn ad(len: u32, kind: u32, block: u64) -> [u8; 8] {
     out
 }
 
+fn type2_map(name: &[u8], revision: u16) -> [u8; 64] {
+    let mut map = [0; 64];
+    map[..2].copy_from_slice(&[2, 64]);
+    let mut id = hadris_udf_raw::EntityId::new(name);
+    id.suffix[..2].copy_from_slice(&revision.to_le_bytes());
+    map[4..36].copy_from_slice(bytemuck::bytes_of(&id));
+    map[36..38].copy_from_slice(&1u16.to_le_bytes());
+    map
+}
+
+fn set_partition_map(bytes: &mut [u8], map: &[u8; 64], alongside_physical: bool) {
+    let start = if alongside_physical { 446 } else { 440 };
+    for block in [260, 276] {
+        let lvd = sector(bytes, block);
+        lvd[264..268].copy_from_slice(&((start + 64 - 440) as u32).to_le_bytes());
+        lvd[268..272].copy_from_slice(&(1 + u32::from(alongside_physical)).to_le_bytes());
+        lvd[start..start + 64].copy_from_slice(map);
+        if alongside_physical {
+            lvd[256..258].copy_from_slice(&1u16.to_le_bytes());
+        }
+        reseal(bytes, block, start + 64 - 16);
+    }
+}
+
+fn set_partition_end(bytes: &mut [u8], end: u64) {
+    for block in [259, 275] {
+        let pd = sector(bytes, block);
+        pd[192..196].copy_from_slice(&((end - PARTITION) as u32).to_le_bytes());
+        reseal(bytes, block, 496);
+    }
+}
+
+fn remap_root(bytes: &mut [u8]) -> (u64, u64, usize) {
+    let mut fsd: hadris_udf_raw::FileSetDescriptor =
+        bytemuck::pod_read_unaligned(&sector(bytes, PARTITION)[..512]);
+    let root = PARTITION + u64::from(fsd.root.location.block.get());
+    fsd.root.location.partition = U16Le::new(1);
+    sector(bytes, PARTITION)[..512].copy_from_slice(bytemuck::bytes_of(&fsd));
+    reseal(bytes, PARTITION, 496);
+    let entry: FileEntry = bytemuck::pod_read_unaligned(&sector(bytes, root)[..176]);
+    let at = PARTITION
+        + u64::from(u32::from_le_bytes(
+            sector(bytes, root)[180..184].try_into().unwrap(),
+        ));
+    let dir = sector(bytes, at);
+    let mut pos = 0;
+    while pos < entry.information_length.get() as usize {
+        let fid: hadris_udf_raw::FileIdentifierDescriptor =
+            bytemuck::pod_read_unaligned(&dir[pos..pos + 38]);
+        let end = pos + fid.total_len();
+        dir[pos + 28..pos + 30].copy_from_slice(&1u16.to_le_bytes());
+        Tag::seal(
+            &mut dir[pos..end],
+            tag::FILE_IDENTIFIER,
+            fid.tag.version.get(),
+            fid.tag.location.get(),
+            fid.tag.crc_length.get() as usize,
+        );
+        pos = end;
+    }
+    (root - PARTITION, at, pos)
+}
+
+fn write_special(
+    bytes: &mut [u8],
+    block: u64,
+    file: u64,
+    kind: u8,
+    form: u16,
+    size: u64,
+    payload: &[u8],
+) {
+    let template = sector(bytes, file).to_vec();
+    sector(bytes, block).copy_from_slice(&template);
+    sector(bytes, block)[27] = kind;
+    set_ads(bytes, block, form, size, payload);
+    Tag::seal(
+        sector(bytes, block),
+        tag::FILE_ENTRY,
+        2,
+        (block - PARTITION) as u32,
+        160 + payload.len(),
+    );
+}
+
+#[test]
+fn metadata_partitions_read_the_mirror_when_descriptors_are_damaged() {
+    let (mut bytes, file, _, free) = volume();
+    let blocks = free - PARTITION;
+    let primary = free + 2;
+    let mirror = primary + blocks;
+    let end = mirror + blocks;
+    bytes.resize(bytes.len().max(end as usize * 2048), 0);
+    let (root, dir, dir_len) = remap_root(&mut bytes);
+    let original = bytes[PARTITION as usize * 2048..free as usize * 2048].to_vec();
+    for start in [primary, mirror] {
+        let offset = start as usize * 2048;
+        bytes[offset..offset + original.len()].copy_from_slice(&original);
+    }
+    let mut map = type2_map(b"*UDF Metadata Partition", 0x0250);
+    map[40..44].copy_from_slice(&((free - PARTITION) as u32).to_le_bytes());
+    map[44..48].copy_from_slice(&((free + 1 - PARTITION) as u32).to_le_bytes());
+    map[48..52].copy_from_slice(&u32::MAX.to_le_bytes());
+    map[52..56].copy_from_slice(&1u32.to_le_bytes());
+    map[56..58].copy_from_slice(&1u16.to_le_bytes());
+    map[58] = 1;
+    set_partition_map(&mut bytes, &map, true);
+    set_partition_end(&mut bytes, end);
+    let integrity = sector(&mut bytes, PARTITION - 1);
+    integrity[72..76].copy_from_slice(&2u32.to_le_bytes());
+    integrity[76..80].copy_from_slice(&0u32.to_le_bytes());
+    integrity[80..84].copy_from_slice(&7u32.to_le_bytes());
+    integrity[84..88].copy_from_slice(&u32::MAX.to_le_bytes());
+    integrity[88..92].copy_from_slice(&((end - PARTITION) as u32).to_le_bytes());
+    integrity[92..96].copy_from_slice(&(blocks as u32).to_le_bytes());
+    reseal(&mut bytes, PARTITION - 1, 80);
+    write_special(
+        &mut bytes,
+        free,
+        file,
+        0xFA,
+        0,
+        blocks * 2048,
+        &ad((blocks * 2048) as u32, 0, primary),
+    );
+    write_special(
+        &mut bytes,
+        free + 1,
+        file,
+        0xFB,
+        0,
+        blocks * 2048,
+        &ad((blocks * 2048) as u32, 0, mirror),
+    );
+    sector(&mut bytes, primary)[4] ^= 1;
+    sector(&mut bytes, primary + root)[172..176].copy_from_slice(&2048u32.to_le_bytes());
+    reseal(&mut bytes, primary + root, 168);
+    sector(&mut bytes, primary + file - PARTITION)[4] ^= 1;
+    let mut udf = open(bytes.clone());
+    let kind = hadris_udf::PartitionKind::Metadata;
+    assert_eq!(udf.info().partitions()[1].kind(), kind);
+    let stats = hadris_fs::sync::FileSystem::statfs(&mut udf).unwrap();
+    assert_eq!(stats.total_blocks(), end - PARTITION);
+    assert_eq!(stats.free_blocks(), 7);
+    assert_eq!(udf.read_to_vec("/f.bin").unwrap(), pattern(5000, 7));
+    let node = udf.resolve_path("/f.bin").unwrap();
+    let mut out = [hadris_fs::Extent::new(0, 0)];
+    udf.records(node, &mut out).unwrap();
+    assert_eq!(out[0].offset(), (mirror + file - PARTITION) * 2048);
+    assert_eq!(
+        udf.records(node, &mut []).unwrap_err().kind(),
+        hadris_fs::ErrorKind::LimitExceeded
+    );
+
+    let mut identifiers = sector(&mut bytes, dir)[..dir_len].to_vec();
+    let mut pos = 0;
+    while pos < identifiers.len() {
+        let fid: hadris_udf_raw::FileIdentifierDescriptor =
+            bytemuck::pod_read_unaligned(&identifiers[pos..pos + 38]);
+        let end = pos + fid.total_len();
+        Tag::seal(
+            &mut identifiers[pos..end],
+            tag::FILE_IDENTIFIER,
+            fid.tag.version.get(),
+            root as u32,
+            fid.tag.crc_length.get() as usize,
+        );
+        pos = end;
+    }
+    set_ads(&mut bytes, mirror + root, 3, dir_len as u64, &identifiers);
+    identifiers[4] ^= 1;
+    set_ads(&mut bytes, primary + root, 3, dir_len as u64, &identifiers);
+    assert_eq!(
+        open(bytes.clone()).read_to_vec("/f.bin").unwrap(),
+        pattern(5000, 7)
+    );
+
+    sector(&mut bytes, free)[4] ^= 1;
+    assert_eq!(open(bytes).read_to_vec("/f.bin").unwrap(), pattern(5000, 7));
+}
+
+#[test]
+fn sparable_partitions_choose_the_latest_table_and_split_extents() {
+    let (mut bytes, _, data, free) = volume();
+    let mut map = type2_map(b"*UDF Sparable Partition", 0x0150);
+    map[40..42].copy_from_slice(&1u16.to_le_bytes());
+    map[42] = 2;
+    map[44..48].copy_from_slice(&2048u32.to_le_bytes());
+    for (i, block) in [free, free + 1].into_iter().enumerate() {
+        map[48 + i * 4..52 + i * 4].copy_from_slice(&(block as u32).to_le_bytes());
+        let table = sector(&mut bytes, block);
+        let id = hadris_udf_raw::EntityId::new(b"*UDF Sparing Table");
+        table[16..48].copy_from_slice(bytemuck::bytes_of(&id));
+        table[48..50].copy_from_slice(&1u16.to_le_bytes());
+        table[52..56].copy_from_slice(&(i as u32).to_le_bytes());
+        table[56..60].copy_from_slice(&((data + 1 - PARTITION) as u32).to_le_bytes());
+        table[60..64].copy_from_slice(&((free + 2 + i as u64) as u32).to_le_bytes());
+        Tag::seal(table, 0, 2, block as u32, 48);
+    }
+    let original = sector(&mut bytes, data + 1).to_vec();
+    sector(&mut bytes, free + 3).copy_from_slice(&original);
+    sector(&mut bytes, data + 1).fill(0);
+    set_partition_map(&mut bytes, &map, false);
+    let mut udf = open(bytes);
+    assert_eq!(
+        udf.info().partitions()[0].kind(),
+        hadris_udf::PartitionKind::Sparable
+    );
+    assert_eq!(udf.read_to_vec("/f.bin").unwrap(), pattern(5000, 7));
+    let node = udf.resolve_path("/f.bin").unwrap();
+    let mut out = [hadris_fs::Extent::new(0, 0); 3];
+    assert_eq!(udf.extents(node, 0, &mut out).unwrap(), 3);
+    assert_eq!(out[1].offset(), (free + 3) * 2048);
+}
+
+#[test]
+fn virtual_partition_maps_read_udf_15_and_20_vats() {
+    let (base, file, data, free) = volume();
+    for (revision, kind) in [(0x0150, 0), (0x0201, 0xF8)] {
+        let mut bytes = base.clone();
+        let map = type2_map(b"*UDF Virtual Partition", revision);
+        set_partition_map(&mut bytes, &map, true);
+        set_partition_end(&mut bytes, free + 3);
+        remap_root(&mut bytes);
+        let mut vat = if kind == 0 { Vec::new() } else { vec![0; 152] };
+        if kind != 0 {
+            vat[..2].copy_from_slice(&152u16.to_le_bytes());
+        }
+        let relocated = free + 1;
+        let original = sector(&mut bytes, data + 1).to_vec();
+        sector(&mut bytes, relocated).copy_from_slice(&original);
+        sector(&mut bytes, data + 1).fill(0);
+        for block in PARTITION..free {
+            let mapped = if block == data + 1 { relocated } else { block };
+            vat.extend_from_slice(&((mapped - PARTITION) as u32).to_le_bytes());
+        }
+        if kind == 0 {
+            let id = hadris_udf_raw::EntityId::new(b"*UDF Virtual Alloc Tbl");
+            vat.extend_from_slice(bytemuck::bytes_of(&id));
+            vat.extend_from_slice(&u32::MAX.to_le_bytes());
+        }
+        write_special(&mut bytes, free + 2, file, kind, 3, vat.len() as u64, &vat);
+        let mut udf = open(bytes);
+        assert_eq!(
+            udf.info().partitions()[1].kind(),
+            hadris_udf::PartitionKind::Virtual
+        );
+        assert_eq!(udf.read_to_vec("/f.bin").unwrap(), pattern(5000, 7));
+    }
+}
+
 #[test]
 fn allocation_descriptors_of_every_form_read_back() {
     let (base, icb, data, free) = volume();

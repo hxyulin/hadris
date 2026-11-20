@@ -126,6 +126,11 @@ pub const ATTR_INDEX_ALLOCATION: u32 = 0xA0;
 pub const ATTR_BITMAP: u32 = 0xB0;
 /// `$REPARSE_POINT` attribute type.
 pub const ATTR_REPARSE_POINT: u32 = 0xC0;
+
+/// A Windows directory junction or volume mount point.
+pub const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
+/// A Windows symbolic link.
+pub const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000_000C;
 /// Reparse tag of a file whose data Windows Overlay Filter keeps compressed
 /// in a named stream (CompactOS).
 pub const IO_REPARSE_TAG_WOF: u32 = 0x8000_0017;

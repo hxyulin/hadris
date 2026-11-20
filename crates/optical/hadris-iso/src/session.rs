@@ -426,6 +426,83 @@ impl<D: BlockDevice> Session<D> {
         }
         let plan = plan::lay_out(&self.tree, opts, &contents, Base::image())?;
         check_output(&out, &plan)?;
+        self.check_export_contents(&plan)?;
+        super::write::emit_from(&mut out, &self.tree, &plan, Some(&mut self.dev)).await?;
+        Ok(plan.report)
+    }
+
+    /// Exports a new session to byte zero of a separate device.
+    ///
+    /// `start_lba` is the session's absolute address in 2048-byte sectors
+    /// on the medium. Existing file extents remain references to the source
+    /// image. Descriptors and new extents use absolute disc addresses.
+    /// [`Report::size`] is the size of the session payload, while the file
+    /// extents in the report use absolute disc byte offsets.
+    ///
+    /// The source and edited tree remain available for another export.
+    /// `out` must not alias the source. Set El Torito options explicitly
+    /// to write a new boot catalog.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a start LBA that overlaps the previous volume or its
+    /// partitions, and rejects hybrid partition options. Layout, capacity
+    /// and content errors are returned before writing. An I/O or content
+    /// read failure during emission can leave a partial session.
+    #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::iso", level = "trace", skip_all))]
+    pub async fn export_session<O: BlockDevice>(
+        &mut self, mut out: O, opts: &IsoOptions, start_lba: u64,
+    ) -> Result<Report, PathError> {
+        check_block_size(&out)?;
+        if opts.hybrid().is_some() {
+            return Err(Detail::HybridBoot.invalid::<Infallible>().into());
+        }
+        let old = self.volume_blocks;
+        let tables = self.partition_tables(old).await?;
+        let floor = tables.as_ref().map_or(old, |tables| old.max(tables.floor).max(tables.backup_end.div_ceil(4)));
+        if start_lba < floor {
+            return Err(Detail::Session.invalid::<Infallible>().into());
+        }
+        let descriptors = start_lba.checked_add(u64::from(raw::DESCRIPTOR_START))
+            .filter(|&block| block <= u64::from(u32::MAX))
+            .ok_or_else(|| Detail::ImageTooLarge.invalid::<Infallible>())?;
+        let mut contents = plan::measure(&self.tree, true)?;
+        if let Some(boot) = opts.el_torito() {
+            for entry in boot.entries() {
+                if entry.boot_info() == BootInfo::None { continue; }
+                if let Some(file) = entry.image().and_then(|path| self.tree.entry(path)) {
+                    if let Some(content) = contents.get_mut(&file.id()) {
+                        content.stored = None;
+                    }
+                }
+            }
+        }
+        let source_len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
+        let old_end = source_len.min(start_lba * SECTOR);
+        for (path, entry) in files(&self.tree) {
+            if let Some(extents) = contents.get(&entry.id()).and_then(|info| info.stored.as_deref()) {
+                if extents.iter().any(|extent| extent.offset().checked_add(extent.len()).is_none_or(|end| end > old_end)) {
+                    return Err(PathError::from(Detail::OutsideImage.corrupt::<Infallible>()).with_path(path));
+                }
+            }
+        }
+        let mut plan = plan::lay_out(&self.tree, opts, &contents, Base {
+            descriptors,
+            first_block: start_lba,
+            fill_gaps: true,
+            system_area: false,
+            keep_catalog: None,
+            gpt_backup: false,
+        })?;
+        plan.output_start = start_lba;
+        plan.report.set_size((plan.total_blocks - start_lba) * SECTOR);
+        check_output(&out, &plan)?;
+        self.check_export_contents(&plan)?;
+        super::write::emit_from(&mut out, &self.tree, &plan, Some(&mut self.dev)).await?;
+        Ok(plan.report)
+    }
+
+    fn check_export_contents(&self, plan: &plan::Plan) -> Result<(), PathError> {
         for region in &plan.regions {
             let content = match region {
                 Region::File { path, len, .. } => Some(super::write::planned_content(&self.tree, path, *len)?),
@@ -450,8 +527,7 @@ impl<D: BlockDevice> Session<D> {
                 }
             }
         }
-        super::write::emit_from(&mut out, &self.tree, &plan, Some(&mut self.dev)).await?;
-        Ok(plan.report)
+        Ok(())
     }
 
     /// Writes the tree back as `mode` says and returns the [`Report`].

@@ -29,9 +29,8 @@ pub enum Detail {
     /// The logical block size is not a power of two from 512 to 4096, it
     /// disagrees with the anchor, or the device block is larger.
     BlockSize = 5,
-    /// A partition map other than type 1 (virtual, sparable or metadata
-    /// partitions), or, when writing, a revision that needs one: UDF 2.50
-    /// and later require a metadata partition.
+    /// A malformed or unsupported partition map, or a writer revision
+    /// requiring a metadata partition.
     PartitionMap = 6,
     /// A partition reference names no partition, or an extent runs past its
     /// partition.

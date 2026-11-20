@@ -1,4 +1,5 @@
 macro_rules! send_filesystem { ($($item:tt)*) => { $($item)* }; }
+macro_rules! async_only { ($($item:tt)*) => { $($item)* }; }
 #[allow(unused_macros)]
 macro_rules! io_transform {
     ($($item:tt)*) => { $($item)* };

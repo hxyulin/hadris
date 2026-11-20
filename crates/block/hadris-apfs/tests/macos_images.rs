@@ -252,12 +252,20 @@ fn reads_a_case_insensitive_volume_written_by_macos() {
         inode.is_compressed(),
         "ditto should have compressed the file"
     );
+    #[cfg(not(feature = "compression"))]
     assert_eq!(
         container
             .read_file(&volume, compressed.file_id, usize::MAX)
             .unwrap_err()
             .kind(),
         hadris_io::ErrorKind::Unsupported
+    );
+    #[cfg(feature = "lzfse")]
+    assert_eq!(
+        container
+            .read_file(&volume, compressed.file_id, usize::MAX)
+            .unwrap(),
+        b"compress me please ".repeat(10_000)
     );
 
     use hadris_fs::{MountOptions, Name, Resolve};
@@ -269,10 +277,19 @@ fn reads_a_case_insensitive_volume_written_by_macos() {
     assert_eq!(first, second);
     assert_eq!(driver.stat(first).unwrap().nlink(), 2);
     let compressed = driver.lookup(root, Name::new("compressed.txt")).unwrap();
+    #[cfg(not(feature = "compression"))]
     assert_eq!(
         driver.read(compressed, 0, &mut [0; 8]).unwrap_err().kind(),
         hadris_io::ErrorKind::Unsupported
     );
+    #[cfg(feature = "lzfse")]
+    {
+        let mut out = [0; 8];
+        assert_eq!(driver.read(compressed, 0, &mut out).unwrap(), 8);
+        assert_eq!(&out, b"compress");
+    }
+    #[cfg(all(feature = "compression", not(feature = "lzfse")))]
+    assert_eq!(driver.stat(compressed).unwrap().len(), 190_000);
     let vol = hadris_fs::sync::Volume::with_resolve(driver, Resolve::Follow);
     let mut sparse = vol
         .open("/sparse.bin", hadris_fs::OpenOptions::new().read())

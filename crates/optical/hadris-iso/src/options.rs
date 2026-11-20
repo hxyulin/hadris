@@ -439,9 +439,15 @@ impl AppendedPartition {
 #[derive(Debug, Clone)]
 pub struct Hybrid {
     scheme: PartitionScheme,
-    bootstrap: Option<Vec<u8>>,
+    bootstrap: Option<Bootstrap>,
     flags: PartitionFlags,
     appended: Vec<AppendedPartition>,
+}
+
+#[derive(Debug, Clone)]
+enum Bootstrap {
+    Isohybrid(Vec<u8>),
+    Grub2(Vec<u8>),
 }
 
 impl Hybrid {
@@ -485,7 +491,22 @@ impl Hybrid {
     #[must_use]
     pub fn with_bootstrap(self, code: &[u8]) -> Self {
         Self {
-            bootstrap: Some(code.to_vec()),
+            bootstrap: Some(Bootstrap::Isohybrid(code.to_vec())),
+            ..self
+        }
+    }
+
+    /// Sets the MBR boot code and patches it for GRUB2.
+    ///
+    /// The first El Torito entry must be a BIOS boot image. Bytes 432 to
+    /// 439 receive its address in 512-byte sectors plus four. This patch
+    /// can be selected independently of [`BootInfo::Grub2`].
+    /// The MBR code and partition scheme have the same limits as
+    /// [`with_bootstrap`](Self::with_bootstrap).
+    #[must_use]
+    pub fn with_grub2_bootstrap(self, code: &[u8]) -> Self {
+        Self {
+            bootstrap: Some(Bootstrap::Grub2(code.to_vec())),
             ..self
         }
     }
@@ -512,7 +533,14 @@ impl Hybrid {
 
     /// The MBR boot code.
     pub fn bootstrap(&self) -> Option<&[u8]> {
-        self.bootstrap.as_deref()
+        match &self.bootstrap {
+            Some(Bootstrap::Isohybrid(code) | Bootstrap::Grub2(code)) => Some(code),
+            None => None,
+        }
+    }
+
+    pub(crate) fn grub2_bootstrap(&self) -> bool {
+        matches!(self.bootstrap, Some(Bootstrap::Grub2(_)))
     }
 
     /// The MBR flags of the ISO partition.

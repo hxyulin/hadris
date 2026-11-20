@@ -2735,7 +2735,8 @@ impl<D: BlockDevice> FatFs<D> {
         let name = name.as_name().ok_or(ErrorKind::Corrupt)?;
         let next = DirCursor::from_raw(found.slot as u64 + 1);
         let entry = DirEntry::new(name, node, metadata(&state, &found.entry, self.zone), next)
-            .map_err(|_| ErrorKind::Corrupt)?;
+            .map_err(|_| ErrorKind::Corrupt)?
+            .with_complete_metadata();
         self.record_id(node, NodeSlot { dir: start, slot: found.slot, offset: found.offset, position: walk.pos() });
         if self.directory_hint {
             let hint = ListedEntry {

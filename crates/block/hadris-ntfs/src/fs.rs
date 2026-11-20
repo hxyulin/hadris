@@ -1,3 +1,5 @@
+use core::cmp::Ordering;
+
 use hadris_fs::{
     Attributes, Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats,
     Metadata, MountError, MountOptions, Name, NodeId, OpenMode, Permissions,
@@ -9,7 +11,9 @@ use super::storage::BlockDevice;
 use crate::VolumeInfo;
 use crate::error::{Detail, Error};
 use crate::raw;
-use crate::record::{self, Attr, Body, FileName, MAX_LIST_ENTRY, MAX_RECORD, RecordHeader, Runs};
+use crate::record::{
+    self, Attr, Body, FileName, MAX_LIST_ENTRY, MAX_RECORD, RecordHeader, Run, Runs,
+};
 use crate::volume::{
     DirIndex, Extents, Geometry, Info, MAX_BLOCK, MftExtents, PAGE, Upcase, UpcaseExtents,
 };
@@ -20,6 +24,9 @@ const CURSOR_END: u64 = 1 << 56;
 const CURSOR_SHIFT: u32 = 16;
 /// Bytes of a UTF-16 attribute name.
 const NAME_BYTES: usize = 510;
+const MAX_KEYED_NODES: usize = 64;
+#[cfg(feature = "alloc")]
+const MAX_CACHED_RUNS: usize = 128;
 
 /// A node id the caller gave that names nothing valid is an invalid handle,
 /// unless the device failed or the volume is cut short. An id that names a
@@ -55,12 +62,23 @@ fn unsupported_list<E>() -> Error<E> {
 
 /// POSIX permissions derived from the type and the DOS read-only bit.
 fn permissions(file_type: FileType, attributes: Attributes) -> Permissions {
-    let bits = if file_type.is_dir() { 0o755 } else { 0o644 };
+    let bits = match file_type {
+        FileType::Symlink => 0o777,
+        FileType::Dir => 0o755,
+        _ => 0o644,
+    };
     if attributes.contains(Attributes::READ_ONLY) {
         Permissions::new(bits & !0o222)
     } else {
         Permissions::new(bits)
     }
+}
+
+fn is_link_tag(tag: u32) -> bool {
+    matches!(
+        tag,
+        raw::IO_REPARSE_TAG_SYMLINK | raw::IO_REPARSE_TAG_MOUNT_POINT
+    )
 }
 
 /// How a stored name matches a query.
@@ -96,21 +114,124 @@ struct Head {
     flags: u16,
     size: u64,
     initialized: u64,
+    allocated: u64,
+    compression_shift: u8,
     place: Place,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct OpenRecord {
+    node: NodeId,
+    bytes: alloc::boxed::Box<[u8]>,
+    data: Option<OpenData>,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct OpenData {
+    head: Head,
+    runs: Option<alloc::boxed::Box<[Run]>>,
+}
+
+#[cfg(feature = "alloc")]
+impl OpenData {
+    fn new(head: Head, record: &[u8]) -> Self {
+        let runs = (matches!(head.place, Place::Base)
+            && head.flags & (raw::ATTR_FLAG_COMPRESSED | raw::ATTR_FLAG_ENCRYPTED) == 0)
+            .then(|| Self::base_runs(record))
+            .flatten();
+        Self { head, runs }
+    }
+
+    fn base_runs(record: &[u8]) -> Option<alloc::boxed::Box<[Run]>> {
+        let attr = record::find_instance(record, raw::ATTR_DATA, &[], 0).ok()??;
+        let Body::NonResident(attr) = attr.body else {
+            return None;
+        };
+        let mut decoded = alloc::vec::Vec::new();
+        for run in Runs::new(attr.runs) {
+            if decoded.len() == MAX_CACHED_RUNS {
+                return None;
+            }
+            decoded.push(run.ok()?);
+        }
+        Some(decoded.into_boxed_slice())
+    }
 }
 
 impl Head {
     fn of(attr: &Attr<'_>, place: Place) -> Self {
-        let (size, initialized) = match attr.body {
-            Body::Resident(value) => (value.len() as u64, value.len() as u64),
-            Body::NonResident(nr) => (nr.data_size, nr.initialized_size.min(nr.data_size)),
+        let (size, initialized, allocated, compression_shift) = match attr.body {
+            Body::Resident(value) => (value.len() as u64, value.len() as u64, 0, 0),
+            Body::NonResident(nr) => (
+                nr.data_size,
+                nr.initialized_size.min(nr.data_size),
+                nr.allocated_size,
+                nr.compression_shift,
+            ),
         };
         Self {
             flags: attr.flags,
             size,
             initialized,
+            allocated,
+            compression_shift,
             place,
         }
+    }
+}
+
+struct UnitCoverage {
+    end: u64,
+    seen: u64,
+    stored: u64,
+}
+
+impl UnitCoverage {
+    fn add<E>(
+        &mut self,
+        nr: &record::NonResident<'_>,
+        geo: &Geometry,
+        limit: u64,
+    ) -> FsResult<(), E> {
+        let mut start = nr
+            .start_vcn
+            .checked_mul(geo.cluster_size)
+            .ok_or(Detail::DataRun)?;
+        let end = self.end.min(limit);
+        for run in Runs::new(nr.runs) {
+            if self.seen >= end {
+                break;
+            }
+            let run = run?;
+            let next = run
+                .len
+                .checked_mul(geo.cluster_size)
+                .and_then(|len| start.checked_add(len))
+                .ok_or(Detail::DataRun)?;
+            if next > self.seen {
+                if start > self.seen {
+                    return Err(Detail::DataRun.into());
+                }
+                let to = next.min(end);
+                if let Some(lcn) = run.lcn {
+                    if self.stored != self.seen {
+                        return Err(Detail::CompressionData.into());
+                    }
+                    if lcn
+                        .checked_add(run.len)
+                        .is_none_or(|end| end > geo.total_clusters)
+                    {
+                        return Err(Detail::OutsideVolume.into());
+                    }
+                    self.stored = to;
+                }
+                self.seen = to;
+            }
+            start = next;
+        }
+        Ok(())
     }
 }
 
@@ -121,6 +242,12 @@ struct Index<'a> {
     allocation: Option<Head>,
     bitmap: Option<Head>,
     blocks: u64,
+}
+
+enum KeyLookup {
+    Found(u64),
+    Missing,
+    Scan,
 }
 
 /// Which attribute of a record an instance is.
@@ -206,15 +333,27 @@ async fn read_bytes<D: BlockDevice>(
             done += whole;
             pos += whole as u64;
         } else {
-            let mut scratch = [0u8; MAX_BLOCK];
-            let scratch = &mut scratch[..bs as usize];
-            dev.read_blocks(block, scratch).await?;
             let n = (bs as usize - within).min(left);
-            buf[done..done + n].copy_from_slice(&scratch[within..within + n]);
+            let partial = read_partial_block(dev, block, within, &mut buf[done..done + n]);
+            async_only! {
+                #[cfg(feature = "alloc")]
+                let partial = alloc::boxed::Box::pin(partial);
+            }
+            partial.await?;
             done += n;
             pos += n as u64;
         }
     }
+    Ok(())
+}
+
+async fn read_partial_block<D: BlockDevice>(
+    dev: &mut D, block: BlockIndex, within: usize, out: &mut [u8],
+) -> FsResult<(), D::Error> {
+    let mut scratch = [0u8; MAX_BLOCK];
+    let size = dev.block_size().get() as usize;
+    dev.read_blocks(block, &mut scratch[..size]).await?;
+    out.copy_from_slice(&scratch[within..within + out.len()]);
     Ok(())
 }
 
@@ -223,14 +362,14 @@ async fn read_bytes<D: BlockDevice>(
 async fn read_runs<D: BlockDevice>(
     dev: &mut D,
     geo: &Geometry,
-    runs: &[u8],
+    runs: impl Iterator<Item = Result<Run, Detail>> + Send,
     offset: u64,
     buf: &mut [u8],
 ) -> Result<(), Error<D::Error>> {
     let end = offset.checked_add(buf.len() as u64).ok_or(Detail::DataRun)?;
     let mut start = 0u64;
     let mut filled = 0usize;
-    for run in Runs::new(runs) {
+    for run in runs {
         if filled == buf.len() {
             break;
         }
@@ -270,7 +409,7 @@ async fn read_runs<D: BlockDevice>(
 async fn read_stream<D: BlockDevice>(
     dev: &mut D,
     geo: &Geometry,
-    runs: &[u8],
+    runs: impl Iterator<Item = Result<Run, Detail>> + Send,
     size: u64,
     initialized: u64,
     offset: u64,
@@ -341,6 +480,23 @@ async fn name_match<D: BlockDevice>(
     }
 }
 
+/// NTFS orders directory keys by upper-cased UTF-16 code units first.
+/// Equal folded keys can hold different POSIX names, so lookup checks
+/// the neighbors of a separator that folds to the requested name.
+async fn folded_order<D: BlockDevice>(
+    dev: &mut D, geo: &Geometry, upcase: &mut Upcase, stored: &[u8], query: &str,
+) -> FsResult<Ordering, D::Error> {
+    for (unit, query) in stored.chunks_exact(2).zip(query.encode_utf16()) {
+        let unit = record::u16_at(unit, 0);
+        if unit == query { continue; }
+        let first = upper(dev, geo, upcase, unit).await?;
+        let second = upper(dev, geo, upcase, query).await?;
+        let order = first.cmp(&second);
+        if order != Ordering::Equal { return Ok(order); }
+    }
+    Ok((stored.len() / 2).cmp(&query.encode_utf16().count()))
+}
+
 /// Reads from byte `offset` of a stream kept in `extents`, and returns how
 /// many bytes it read.
 async fn read_extents<D: BlockDevice, const N: usize, const S: usize>(
@@ -374,7 +530,7 @@ async fn read_extents<D: BlockDevice, const N: usize, const S: usize>(
         let to = end.min(stop);
         if to > done {
             let part = &mut buf[(done - offset) as usize..(to - offset) as usize];
-            read_runs(dev, geo, runs, done - start, part).await?;
+            read_runs(dev, geo, Runs::new(runs), done - start, part).await?;
             done = to;
         }
     }
@@ -395,7 +551,10 @@ async fn read_record<D: BlockDevice>(
     if offset.checked_add(size as u64).is_none_or(|end| end > info.mft.size) {
         return Err(Detail::Record.into());
     }
-    read_extents(dev, &info.geo, &info.mft, offset, buf).await?;
+    match info.mft_mirror.filter(|_| index == raw::RECORD_MFT) {
+        Some(mirror) => read_bytes(dev, info.geo.volume_len, mirror, buf).await?,
+        None => { read_extents(dev, &info.geo, &info.mft, offset, buf).await?; }
+    }
     Ok(record::file_record(buf)?)
 }
 
@@ -457,7 +616,7 @@ async fn next_attr<D: BlockDevice>(
             Body::Resident(value) => &value[*pos as usize..],
             Body::NonResident(nr) => {
                 let initialized = nr.initialized_size.min(nr.data_size);
-                let n = read_stream(dev, &info.geo, nr.runs, nr.data_size, initialized, *pos, &mut chunk).await?;
+                let n = read_stream(dev, &info.geo, Runs::new(nr.runs), nr.data_size, initialized, *pos, &mut chunk).await?;
                 &chunk[..n]
             }
         };
@@ -526,6 +685,22 @@ async fn stream_head<D: BlockDevice>(
         }
         return Ok(None);
     }
+    let listed = listed_stream_head(dev, info, rec, base, kind, name);
+    async_only! {
+        #[cfg(feature = "alloc")]
+        let listed = alloc::boxed::Box::pin(listed);
+    }
+    listed.await
+}
+
+async fn listed_stream_head<D: BlockDevice>(
+    dev: &mut D,
+    info: &Info,
+    rec: &[u8],
+    base: u64,
+    kind: u32,
+    name: &[u8],
+) -> Result<Option<Head>, Error<D::Error>> {
     let mut pos = 0;
     let mut found_name = [0u8; NAME_BYTES];
     let mut ext = [0u8; MAX_RECORD];
@@ -544,7 +719,7 @@ async fn stream_head<D: BlockDevice>(
 }
 
 /// Reads from byte `offset` of a value `stream_head` found, and returns how
-/// many bytes it read. Compressed and encrypted values are unsupported.
+/// many bytes it read.
 #[allow(clippy::too_many_arguments)]
 async fn stream_read<D: BlockDevice>(
     dev: &mut D,
@@ -557,12 +732,26 @@ async fn stream_read<D: BlockDevice>(
     offset: u64,
     buf: &mut [u8],
 ) -> Result<usize, Error<D::Error>> {
-    if head.flags & raw::ATTR_FLAG_COMPRESSED != 0 {
-        return Err(Detail::Compressed.into());
-    }
     if head.flags & raw::ATTR_FLAG_ENCRYPTED != 0 {
         return Err(Detail::Encrypted.into());
     }
+    if head.flags & raw::ATTR_FLAG_COMPRESSED != 0 && !matches!(head.place, Place::Resident(..)) {
+        if kind != raw::ATTR_DATA { return Err(Detail::Compressed.into()); }
+        let compressed = read_compressed(dev, info, rec, base, name, head, offset, buf);
+        async_only! {
+            #[cfg(feature = "alloc")]
+            let compressed = alloc::boxed::Box::pin(compressed);
+        }
+        return compressed.await;
+    }
+    stream_payload(dev, info, rec, base, kind, name, head, offset, buf).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn stream_payload<D: BlockDevice>(
+    dev: &mut D, info: &Info, rec: &[u8], base: u64, kind: u32, name: &[u8],
+    head: &Head, offset: u64, buf: &mut [u8],
+) -> FsResult<usize, D::Error> {
     match head.place {
         Place::Resident(record, slot) => {
             let mut ext = [0u8; MAX_RECORD];
@@ -588,7 +777,7 @@ async fn stream_read<D: BlockDevice>(
             let Body::NonResident(nr) = attr.body else {
                 return Err(Detail::Attribute.into());
             };
-            read_stream(dev, &info.geo, nr.runs, head.size, head.initialized, offset, buf).await
+            read_stream(dev, &info.geo, Runs::new(nr.runs), head.size, head.initialized, offset, buf).await
         }
         Place::Listed => {
             if offset >= head.size {
@@ -597,12 +786,154 @@ async fn stream_read<D: BlockDevice>(
             let n = (head.size - offset).min(buf.len() as u64) as usize;
             let stored = head.initialized.saturating_sub(offset).min(n as u64) as usize;
             if stored > 0 {
-                read_listed(dev, info, rec, base, kind, name, offset, &mut buf[..stored]).await?;
+                let read = read_listed(dev, info, rec, base, kind, name, offset, &mut buf[..stored]);
+                async_only! {
+                    #[cfg(feature = "alloc")]
+                    let read = alloc::boxed::Box::pin(read);
+                }
+                read.await?;
             }
             buf[stored..n].fill(0);
             Ok(n)
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn read_compressed<D: BlockDevice>(
+    dev: &mut D, info: &Info, rec: &[u8], base: u64, name: &[u8], head: &Head,
+    mut offset: u64, out: &mut [u8],
+) -> FsResult<usize, D::Error> {
+    let cluster = info.geo.cluster_size;
+    let unit_size = (1u64.checked_shl(u32::from(head.compression_shift)))
+        .and_then(|clusters| clusters.checked_mul(cluster))
+        .filter(|&size| size <= 65536 && head.compression_shift != 0)
+        .ok_or(Detail::Compressed)?;
+    if head.allocated < head.initialized || head.allocated % cluster != 0 {
+        return Err(Detail::CompressionData.into());
+    }
+    let count = head.size.saturating_sub(offset).min(out.len() as u64) as usize;
+    let mut initialized = head.initialized.saturating_sub(offset).min(count as u64) as usize;
+    let mut done = 0;
+    let payload = Head { size: head.allocated, initialized: head.allocated, ..*head };
+    while initialized > 0 {
+        let start = offset / unit_size * unit_size;
+        let end = start.saturating_add(unit_size).min(head.allocated);
+        let mut coverage = UnitCoverage { end, seen: start, stored: start };
+        compressed_runs(dev, info, rec, base, name, head.place, &mut coverage).await?;
+        if coverage.seen != end { return Err(Detail::DataRun.into()); }
+        let take = (end - offset).min(initialized as u64) as usize;
+        let chunk = &mut out[done..done + take];
+        if coverage.stored == start {
+            chunk.fill(0);
+        } else if coverage.stored == end {
+            let read = stream_payload(dev, info, rec, base, raw::ATTR_DATA, name, &payload, offset, chunk).await?;
+            if read != take { return Err(Detail::DataRun.into()); }
+        } else {
+            read_lznt1_unit(dev, info, rec, base, name, &payload, start, coverage.stored, offset - start, chunk).await?;
+        }
+        initialized -= take;
+        done += take;
+        offset += take as u64;
+    }
+    out[done..count].fill(0);
+    Ok(count)
+}
+
+async fn compressed_runs<D: BlockDevice>(
+    dev: &mut D, info: &Info, rec: &[u8], base: u64, name: &[u8], place: Place,
+    unit: &mut UnitCoverage,
+) -> FsResult<(), D::Error> {
+    let kind = raw::ATTR_DATA;
+    if matches!(place, Place::Base) {
+        let attr = record::find_instance(rec, kind, name, 0)?.ok_or(Detail::Attribute)?;
+        let Body::NonResident(nr) = attr.body else { return Err(Detail::Attribute.into()) };
+        return unit.add(&nr, &info.geo, unit.end);
+    }
+    let mut pending: Option<Found> = None;
+    let mut pos = 0;
+    let mut found_name = [0; NAME_BYTES];
+    let mut ext = [0; MAX_RECORD];
+    loop {
+        let next = loop {
+            match next_attr(dev, info, rec, base, kind, &mut pos, &mut found_name).await? {
+                Some(found) if &found_name[..found.name_len] == name => break Some(found),
+                Some(_) => {}
+                None => break None,
+            }
+        };
+        let limit = match next {
+            Some(found) => found.start_vcn.checked_mul(info.geo.cluster_size).ok_or(Detail::DataRun)?,
+            None => unit.end,
+        };
+        if let Some(current) = pending {
+            if next.is_some_and(|next| next.start_vcn <= current.start_vcn) {
+                return Err(Detail::AttributeList.into());
+            }
+            if limit > unit.seen {
+                let attr = load(dev, info, rec, &mut ext, kind, &current).await?;
+                let Body::NonResident(nr) = attr.body else { return Err(Detail::AttributeList.into()) };
+                unit.add(&nr, &info.geo, limit)?;
+            }
+        }
+        if unit.seen == unit.end || next.is_none() { return Ok(()); }
+        pending = next;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn read_lznt1_unit<D: BlockDevice>(
+    dev: &mut D, info: &Info, rec: &[u8], base: u64, name: &[u8], payload: &Head,
+    mut input: u64, stored_end: u64, offset: u64, out: &mut [u8],
+) -> FsResult<(), D::Error> {
+    use crate::lznt1::{CHUNK_BYTES, Chunk};
+    let kind = raw::ATTR_DATA;
+    let end = offset + out.len() as u64;
+    let mut logical = 0;
+    let mut encoded = [0; CHUNK_BYTES];
+    let mut decoded = [0; CHUNK_BYTES];
+    let mut window = [0; 512];
+    // Bound header read-ahead to the current device block and mapping cluster.
+    let width = (window.len() as u64).min(u64::from(dev.block_size().get())).min(info.geo.cluster_size);
+    let mut window_start = input;
+    let mut window_end = input;
+    out.fill(0);
+    while logical < end && input < stored_end {
+        if stored_end - input < 2 { return Err(Detail::CompressionData.into()); }
+        if input + 2 > window_end {
+            let len = (width - input % width).max(2).min(stored_end - input) as usize;
+            let read = stream_payload(dev, info, rec, base, kind, name, payload, input, &mut window[..len]).await?;
+            if read != len { return Err(Detail::CompressionData.into()); }
+            window_start = input;
+            window_end = input + len as u64;
+        }
+        let at = (input - window_start) as usize;
+        let header = record::u16_at(&window, at);
+        input += 2;
+        let Some(chunk) = Chunk::header(header)? else { break };
+        let next = input.checked_add(chunk.len as u64).ok_or(Detail::CompressionData)?;
+        if next > stored_end { return Err(Detail::CompressionData.into()); }
+        let after = logical + CHUNK_BYTES as u64;
+        if after > offset {
+            let raw = &mut encoded[..chunk.len];
+            let cached = ((window_end - input) as usize).min(raw.len());
+            let at = (input - window_start) as usize;
+            raw[..cached].copy_from_slice(&window[at..at + cached]);
+            let rest = &mut raw[cached..];
+            if !rest.is_empty() {
+                let read = stream_payload(dev, info, rec, base, kind, name, payload, input + cached as u64, rest).await?;
+                if read != rest.len() { return Err(Detail::CompressionData.into()); }
+            }
+            chunk.decode(raw, &mut decoded)?;
+            let from = logical.max(offset);
+            let to = after.min(end);
+            out[(from - offset) as usize..(to - offset) as usize]
+                .copy_from_slice(&decoded[(from - logical) as usize..(to - logical) as usize]);
+        }
+        input = next;
+        logical = after;
+    }
+    Ok(())
 }
 
 /// The first byte range within `[offset, end)` of a value `stream_head`
@@ -728,7 +1059,7 @@ async fn read_listed<D: BlockDevice>(
                     return Err(Detail::AttributeList.into());
                 };
                 let part = &mut buf[(done - offset) as usize..(to - offset) as usize];
-                read_runs(dev, &info.geo, nr.runs, done - start, part).await?;
+                read_runs(dev, &info.geo, Runs::new(nr.runs), done - start, part).await?;
                 done = to;
             }
         }
@@ -759,6 +1090,43 @@ async fn load_page<D: BlockDevice>(
     Ok(())
 }
 
+async fn mft_base<D: BlockDevice>(
+    dev: &mut D,
+    geo: &Geometry,
+    offset: u64,
+    record: &mut [u8],
+) -> FsResult<MftExtents, D::Error> {
+    read_bytes(dev, geo.volume_len, offset, record).await?;
+    let header = fs(record::file_record(record))?;
+    if header.is_dir() || record::u64_at(record, 0x20) != 0 {
+        return Err(Detail::Record.into());
+    }
+    match record::find_instance(record, raw::ATTR_DATA, &[], 0)? {
+        Some(Attr { flags: 0, body: Body::NonResident(nr), .. }) if nr.initialized_size >= record.len() as u64 => {
+            let clusters = Runs::new(nr.runs).try_fold(0u64, |clusters, run| {
+                let run = run?;
+                let lcn = run.lcn.ok_or(Detail::DataRun)?;
+                if lcn.checked_add(run.len).is_none_or(|end| end > geo.total_clusters) {
+                    return Err(Detail::OutsideVolume);
+                }
+                clusters.checked_add(run.len).ok_or(Detail::DataRun)
+            })?;
+            if clusters < (record.len() as u64).div_ceil(geo.cluster_size) {
+                return Err(Detail::DataRun.into());
+            }
+            MftExtents::new(&nr).ok_or_else(|| Detail::Attribute.into())
+        }
+        _ => Err(Detail::Attribute.into()),
+    }
+}
+
+async fn volume_dirty<D: BlockDevice>(dev: &mut D, info: &Info, buf: &mut [u8]) -> Option<bool> {
+    read_record(dev, info, raw::RECORD_VOLUME, buf).await.ok()?;
+    let attr = record::find_attr(&buf[..info.geo.mft_record_size], raw::ATTR_VOLUME_INFORMATION, &[]).ok()??;
+    let Body::Resident(value) = attr.body else { return None };
+    (value.len() >= 12).then(|| record::u16_at(value, 10) & 1 != 0)
+}
+
 /// Reads the volume structures.
 async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     let block = dev.block_size().get() as usize;
@@ -778,17 +1146,29 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     let geo = Geometry::new(&boot, device_len)?;
 
     let size = geo.mft_record_size;
-    let mut rec = [0u8; MAX_RECORD];
-    read_bytes(dev, geo.volume_len, geo.mft_offset, &mut rec[..size]).await?;
-    record::file_record(&mut rec[..size])?;
-    let rec = &rec[..size];
-    let mft = match record::find_instance(rec, raw::ATTR_DATA, &[], 0)? {
-        Some(Attr { body: Body::NonResident(nr), .. }) => MftExtents::new(&nr).ok_or(Detail::Attribute)?,
-        _ => return Err(Detail::Attribute.into()),
+    let mut record = [0u8; MAX_RECORD];
+    let rec = &mut record[..size];
+    let (mft, mft_mirror) = match mft_base(dev, &geo, geo.mft_offset, rec).await {
+        Ok(mft) => (mft, None),
+        Err(primary) => {
+            let cluster = u64::from_le_bytes(boot.mft_mirror_lcn);
+            if cluster == 0 || cluster >= geo.total_clusters {
+                return Err(primary);
+            }
+            let offset = cluster * geo.cluster_size;
+            if offset == geo.mft_offset {
+                return Err(primary);
+            }
+            let mft = mft_base(dev, &geo, offset, rec).await.map_err(|_| primary)?;
+            (mft, Some(offset))
+        }
     };
     let mut info = Info {
         geo,
         mft,
+        mft_mirror,
+        dirty: None,
+        hibernated: None,
         upcase: Upcase {
             stream: UpcaseExtents::empty(),
             low: [0; PAGE],
@@ -831,6 +1211,7 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     };
     let Info { upcase, .. } = &mut info;
     load_page(dev, &geo, &upcase.stream, 0, &mut upcase.low).await?;
+    info.dirty = volume_dirty(dev, &info, &mut buf).await;
     Ok(info)
 }
 
@@ -868,12 +1249,16 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
 pub struct NtfsFs<D> {
     dev: D,
     info: Info,
+    #[cfg(feature = "alloc")]
+    opened: Option<OpenRecord>,
 }
 
 impl<D: BlockDevice> NtfsFs<D> {
     /// Mounts the volume on `dev`, read-only. NTFS reads only the primary
     /// boot sector, so [`MountOptions::backup_boot`] and the other options
     /// do not apply.
+    /// The mount can recover MFT record zero from `$MFTMirr`. See
+    /// [`info`](Self::info) for diagnostics recorded at mount time.
     ///
     /// # Errors
     ///
@@ -885,14 +1270,23 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// the [`MountError`].
     // @hadris-spec NTFS:Master-File-Table
     // @hadris-compliance partial
-    // @hadris-tests read::open_blank_volume, crafted::open_rejects_bad_boot_sectors, crafted::fragmented_mft_is_followed
+    // @hadris-tests read::open_blank_volume, crafted::open_rejects_bad_boot_sectors, crafted::fragmented_mft_is_followed, crafted::mount_falls_back_to_the_mft_mirror
     // @hadris-fuzz ntfs_read
-    // @hadris-note Reads `$MFT` from its base record and extension records and checks file references; `$MFTMirr` recovery is not supported.
+    // @hadris-note Reads `$MFT` from its base record and extension records, checks file references and can recover record zero from `$MFTMirr`.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all))]
     pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
         let _ = options;
         match mount(&mut dev).await {
-            Ok(info) => Ok(Self { dev, info }),
+            Ok(info) => {
+                let mut fs = Self {
+                    dev,
+                    info,
+                    #[cfg(feature = "alloc")]
+                    opened: None,
+                };
+                fs.info.hibernated = fs.detect_hibernation().await;
+                Ok(fs)
+            }
             Err(err) => Err(MountError::new(err, dev)),
         }
     }
@@ -908,11 +1302,28 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(self.dev)
     }
 
-    /// Returns a snapshot of the mounted volume's geometry and serial number.
+    /// Returns a snapshot of the mounted volume's geometry and diagnostics.
     ///
     /// This does no I/O and the result does not borrow the filesystem.
     pub const fn info(&self) -> VolumeInfo {
-        VolumeInfo::new(self.info.geo)
+        VolumeInfo::new(&self.info)
+    }
+
+    async fn detect_hibernation(&mut self) -> Option<bool> {
+        let node = match self.lookup(self.info.root(), Name::new("hiberfil.sys")).await {
+            Ok(node) => node,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Some(false),
+            Err(_) => return None,
+        };
+        let mut header = [0u8; 4096];
+        let count = self.read(node, 0, &mut header).await.ok()?;
+        if count >= 4 && matches!(&header[..4], b"hibr" | b"HIBR") {
+            Some(true)
+        } else if count == header.len() && header.iter().all(|&byte| byte == 0) {
+            Some(false)
+        } else {
+            None
+        }
     }
 
     /// The volume serial number, also available through [`info`](Self::info).
@@ -1005,7 +1416,62 @@ impl<D: BlockDevice> NtfsFs<D> {
         if !self.node_record(node, buf).await?.is_dir() {
             return Err(ErrorKind::NotADirectory.into());
         }
+        let rec = &buf[..self.info.geo.mft_record_size];
+        if record::find_attr(rec, raw::ATTR_REPARSE_POINT, &[])?.is_some()
+            || record::find_attr(rec, raw::ATTR_ATTRIBUTE_LIST, &[])?.is_some()
+        {
+            let reparse = self.reparse(node, rec);
+            async_only! {
+                #[cfg(feature = "alloc")]
+                let reparse = alloc::boxed::Box::pin(reparse);
+            }
+            if reparse.await?.is_some_and(|(tag, _)| is_link_tag(tag)) {
+                return Err(ErrorKind::NotADirectory.into());
+            }
+        }
         Ok(())
+    }
+
+    async fn reparse(&mut self, node: NodeId, rec: &[u8]) -> FsResult<Option<(u32, Head)>, D::Error> {
+        let base = record::reference_record(node.get());
+        let kind = raw::ATTR_REPARSE_POINT;
+        let Some(head) = stream_head(&mut self.dev, &self.info, rec, base, kind, &[]).await? else {
+            return Ok(None);
+        };
+        let mut bytes = [0; 4];
+        if stream_read(&mut self.dev, &self.info, rec, base, kind, &[], &head, 0, &mut bytes).await? != bytes.len() {
+            return Err(Detail::ReparseLink.into());
+        }
+        Ok(Some((u32::from_le_bytes(bytes), head)))
+    }
+
+    async fn link_chars(
+        &mut self, node: NodeId, rec: &[u8], tag: u32, head: &Head, mut visit: impl FnMut(char) -> FsResult<(), D::Error>,
+    ) -> FsResult<bool, D::Error> {
+        if head.size > record::MAX_REPARSE as u64 || head.size > head.initialized {
+            return Err(Detail::ReparseLink.into());
+        }
+        let base = record::reference_record(node.get());
+        let kind = raw::ATTR_REPARSE_POINT;
+        let mut value = [0; 512];
+        let n = stream_read(&mut self.dev, &self.info, rec, base, kind, &[], head, 0, &mut value[..20]).await?;
+        let link = record::ReparseLink::parse(&value[..n], head.size as usize, tag)?;
+        let mut at = link.target.start;
+        while at < link.target.end {
+            let count = (link.target.end - at).min(value.len());
+            let mut n = stream_read(&mut self.dev, &self.info, rec, base, kind, &[], head, at as u64, &mut value[..count]).await?;
+            if n != count {
+                return Err(Detail::ReparseLink.into());
+            }
+            if at + n < link.target.end && (0xD800..=0xDBFF).contains(&record::u16_at(&value, n - 2)) {
+                n -= 2;
+            }
+            for c in record::ReparseLink::chars(&value[..n]) {
+                visit(c?)?;
+            }
+            at += n;
+        }
+        Ok(link.relative)
     }
 
     /// The index root, allocation and bitmap of the directory whose record
@@ -1114,6 +1580,124 @@ impl<D: BlockDevice> NtfsFs<D> {
         Ok(())
     }
 
+    async fn keyed_lookup(
+        &mut self, rec: &[u8], base: u64, index: &Index<'_>, query: &str, block: &mut [u8; MAX_RECORD],
+    ) -> FsResult<KeyLookup, D::Error> {
+        let mut pending = [0; MAX_KEYED_NODES];
+        let mut queued = 0;
+        let mut visited = [0; MAX_KEYED_NODES];
+        let mut count = 0;
+        let mut ordinal = 0;
+        let mut best = None;
+        let mut failure = None;
+        loop {
+            let (buf, header) = if ordinal == 0 {
+                (index.root.root, 0x10)
+            } else {
+                (&block[..index.root.block_size], 0x18)
+            };
+            let area = record::index_node(buf, header)?;
+            let internal = buf[header + 12] & 1 != 0;
+            let mut pos = area.first;
+            loop {
+                let entry = record::index_entry(buf, area, pos)?;
+                pos = entry.next;
+                if internal != entry.child_vcn.is_some() {
+                    return Err(Detail::Index.into());
+                }
+                let order = if let Some((reference, name)) = entry.entry {
+                    let Info { geo, upcase, .. } = &mut self.info;
+                    let Ok(order) = folded_order(&mut self.dev, geo, upcase, name.name, query).await else {
+                        return Ok(KeyLookup::Scan);
+                    };
+                    if order == Ordering::Equal {
+                        let fold = name.namespace != raw::FILE_NAME_POSIX;
+                        let Ok(found) = name_match(&mut self.dev, geo, upcase, name.name, query, fold).await else {
+                            return Ok(KeyLookup::Scan);
+                        };
+                        let rank = match found {
+                            Match::Exact if !hidden(reference, &name) => return Ok(KeyLookup::Found(reference)),
+                            Match::Exact => Some(1),
+                            Match::Folded => Some(2 + u8::from(hidden(reference, &name))),
+                            Match::No => None,
+                        };
+                        if let Some(rank) = rank {
+                            if best.is_none_or(|(held, node, _)| (rank, ordinal) < (held, node)) {
+                                best = Some((rank, ordinal, reference));
+                            }
+                        }
+                    }
+                    order
+                } else {
+                    Ordering::Greater
+                };
+                if order != Ordering::Less {
+                    if let Some(vcn) = entry.child_vcn {
+                        let Some(next) = pending.get_mut(queued) else { return Ok(KeyLookup::Scan) };
+                        *next = vcn;
+                        queued += 1;
+                    }
+                }
+                if order == Ordering::Greater { break; }
+            }
+            loop {
+                if queued == 0 {
+                    if let Some(error) = failure { return Err(error); }
+                    return Ok(best.map_or(KeyLookup::Missing, |(_, _, reference)| KeyLookup::Found(reference)));
+                }
+                queued -= 1;
+                let vcn = pending[queued];
+                if visited[..count].contains(&vcn) {
+                    return Err(Detail::Index.into());
+                }
+                let Some(seen) = visited.get_mut(count) else { return Ok(KeyLookup::Scan) };
+                *seen = vcn;
+                count += 1;
+                match self.keyed_child(rec, base, index, vcn, block).await {
+                    Ok(child) => {
+                        ordinal = child + 1;
+                        break;
+                    }
+                    Err(error) => { failure.get_or_insert(error); }
+                }
+            }
+        }
+    }
+
+    async fn keyed_child(
+        &mut self, rec: &[u8], base: u64, index: &Index<'_>, vcn: u64, block: &mut [u8; MAX_RECORD],
+    ) -> FsResult<u64, D::Error> {
+        let size = index.root.block_size as u64;
+        let unit = if self.info.geo.cluster_size <= size {
+            self.info.geo.cluster_size
+        } else {
+            record::FIXUP_STRIDE as u64
+        };
+        let bytes = vcn.checked_mul(unit).ok_or(Detail::Index)?;
+        let child = bytes / size;
+        if bytes % size != 0 || child >= index.blocks {
+            return Err(Detail::Index.into());
+        }
+        let bitmap = index.bitmap.ok_or(Detail::Index)?;
+        let mut bits = [0];
+        let read = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_BITMAP, &raw::I30, &bitmap, child / 8, &mut bits).await?;
+        if read != 1 || bits[0] & (1 << (child % 8)) == 0 {
+            return Err(Detail::Index.into());
+        }
+        self.index_block(rec, base, index.allocation, index.root.block_size, child, block).await?;
+        if record::u64_at(block, 0x10) != vcn {
+            return Err(Detail::Index.into());
+        }
+        Ok(child)
+    }
+
+    fn lookup_reference(&self, reference: u64) -> FsResult<NodeId, D::Error> {
+        if record::reference_record(reference) == raw::RECORD_ROOT {
+            return Ok(self.root());
+        }
+        Ok(NodeId::new(reference).ok_or(Detail::Index)?)
+    }
+
     /// Calls `visit` with the name and length of each named data stream of
     /// a node, the alternate data streams.
     // @hadris-spec NTFS:Named-Streams
@@ -1157,7 +1741,7 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// # Errors
     ///
     /// Returns [`ErrorKind::NotFound`] if the named stream is absent,
-    /// [`ErrorKind::Unsupported`] for compressed or encrypted content, or
+    /// [`ErrorKind::Unsupported`] for unsupported compression or encryption, or
     /// an error for invalid node references, malformed mapping pairs, or
     /// device failures.
     /// Failure may leave `buf` partly modified.
@@ -1217,9 +1801,9 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// matches exactly.
     // @hadris-spec NTFS:Directory-Index
     // @hadris-compliance partial
-    // @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry
+    // @hadris-tests crafted::names_fold_case_through_upcase, read::large_directory_lists_every_entry, crafted::keyed_lookup_descends_only_the_relevant_index_blocks
     // @hadris-fuzz ntfs_read
-    // @hadris-note Walks the index root and every index block the bitmap marks in use instead of descending the B-tree by key.
+    // @hadris-note Descends the file-name index by its folded key. Unlinked indexes and comparisons that cannot use the key fall back to the bitmap scan.
     ///
     /// # Errors
     ///
@@ -1237,13 +1821,24 @@ impl<D: BlockDevice> NtfsFs<D> {
         let rec = &rec[..self.info.geo.mft_record_size];
         let base = record::reference_record(dir.get());
         let mut ext = [0u8; MAX_RECORD];
+        let index = self.dir_index(rec, base, &mut ext).await?;
+        let mut block = [0u8; MAX_RECORD];
+        if index.root.root[0x1C] & 1 != 0
+            && record::u32_at(index.root.root, 4) == 1
+            && !query.contains(char::REPLACEMENT_CHARACTER)
+        {
+            match self.keyed_lookup(rec, base, &index, query, &mut block).await? {
+                KeyLookup::Found(reference) => return self.lookup_reference(reference),
+                KeyLookup::Missing => return Err(ErrorKind::NotFound.into()),
+                KeyLookup::Scan => {}
+            }
+        }
         let Index {
             root: index,
             allocation,
             bitmap,
             blocks,
-        } = self.dir_index(rec, base, &mut ext).await?;
-        let mut block = [0u8; MAX_RECORD];
+        } = index;
         let mut best: Option<(u8, u64)> = None;
         let mut deferred = None;
         let mut node = 0u64;
@@ -1295,8 +1890,7 @@ impl<D: BlockDevice> NtfsFs<D> {
             }
         }
         match best {
-            Some((_, reference)) if record::reference_record(reference) == raw::RECORD_ROOT => Ok(self.root()),
-            Some((_, reference)) => Ok(NodeId::new(reference).ok_or(Detail::Index)?),
+            Some((_, reference)) => self.lookup_reference(reference),
             None => Err(ErrorKind::NotFound.into()),
         }
     }
@@ -1374,13 +1968,13 @@ impl<D: BlockDevice> NtfsFs<D> {
             }
         };
         let node = NodeId::new(reference).ok_or(Detail::Index)?;
-        let meta = match self.stat(node).await {
-            Ok(meta) => meta,
+        let (meta, complete) = match self.stat(node).await {
+            Ok(meta) => (meta, true),
             Err(err) if err.kind() == ErrorKind::Io => return Err(err),
-            Err(_) => damaged(flags),
+            Err(_) => (damaged(flags), false),
         };
         let entry = DirEntry::new(Name::new(&name[..len]), node, meta, next).map_err(|_| Detail::FileName)?;
-        Ok(Some(entry))
+        Ok(Some(if complete { entry.with_complete_metadata() } else { entry }))
     }
 
     /// Metadata of a node: type, size, the four times and the DOS
@@ -1397,7 +1991,8 @@ impl<D: BlockDevice> NtfsFs<D> {
         let header = self.node_record(node, &mut rec).await?;
         let rec = &rec[..self.info.geo.mft_record_size];
         let base = record::reference_record(node.get());
-        let file_type = if header.is_dir() { FileType::Dir } else { FileType::File };
+        let link = self.reparse(node, rec).await?.filter(|(tag, _)| is_link_tag(*tag));
+        let file_type = if link.is_some() { FileType::Symlink } else if header.is_dir() { FileType::Dir } else { FileType::File };
         let mut meta = Metadata::new(file_type, permissions(file_type, Attributes::NONE));
         if let Some(Attr { body: Body::Resident(value), .. }) = fs(record::find_attr(rec, raw::ATTR_STANDARD_INFORMATION, &[]))? {
             if value.len() >= 0x24 {
@@ -1442,7 +2037,14 @@ impl<D: BlockDevice> NtfsFs<D> {
                 names += 1;
             }
         }
-        if !header.is_dir() {
+        if let Some((tag, head)) = link {
+            let mut len = 0;
+            self.link_chars(node, rec, tag, &head, |c| {
+                len += c.len_utf8();
+                Ok(())
+            }).await?;
+            meta = meta.with_len(len as u64);
+        } else if !header.is_dir() {
             let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[]).await?;
             meta = meta.with_len(head.ok_or(Error::<D::Error>::from(Detail::Attribute))?.size);
         }
@@ -1451,14 +2053,14 @@ impl<D: BlockDevice> NtfsFs<D> {
 
     /// Reads from the unnamed data stream of a file at `offset`. Bytes past
     /// the initialized size and sparse runs read as zeros. Directories fail
-    /// with [`ErrorKind::IsADirectory`]; compressed and encrypted streams,
-    /// and files whose data a WOF (CompactOS) or deduplication reparse point
-    /// keeps elsewhere, with [`ErrorKind::Unsupported`].
+    /// with [`ErrorKind::IsADirectory`]. LZNT1 streams are decoded on read.
+    /// Encrypted streams and content stored by WOF (CompactOS) or Data
+    /// Deduplication return [`ErrorKind::Unsupported`].
     // @hadris-spec NTFS:Data-Stream
     // @hadris-compliance partial
-    // @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records
+    // @hadris-tests read::files_read_back, crafted::streams_past_the_volume_fail, crafted::attribute_lists_join_extension_records, crafted::lznt1_reads_compressed_sparse_and_stored_units_at_offsets, crafted::lznt1_units_can_span_attribute_list_extents
     // @hadris-fuzz ntfs_read
-    // @hadris-note Reads resident, non-resident, sparse and partly initialized streams, also across extension records; compressed and encrypted streams, and WOF and deduplication reparse points, are unsupported.
+    // @hadris-note Reads resident, non-resident, sparse, partly initialized and LZNT1 streams across extension records. Encrypted, WOF and deduplicated streams are unsupported.
     ///
     /// # Errors
     ///
@@ -1468,23 +2070,39 @@ impl<D: BlockDevice> NtfsFs<D> {
     /// Failure may leave `buf` partly modified.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, offset = offset, bytes = buf.len())))]
     pub async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        let mut rec = [0u8; MAX_RECORD];
-        if self.node_record(node, &mut rec).await?.is_dir() {
-            return Err(ErrorKind::IsADirectory.into());
-        }
-        let rec = &rec[..self.info.geo.mft_record_size];
         let base = record::reference_record(node.get());
-        let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
-            .await?
-            .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
-        if let Some(reparse) = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_REPARSE_POINT, &[]).await? {
-            let mut tag = [0u8; 4];
-            let n = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_REPARSE_POINT, &[], &reparse, 0, &mut tag).await?;
-            let tag = u32::from_le_bytes(tag);
-            if n == 4 && matches!(tag, raw::IO_REPARSE_TAG_WOF | raw::IO_REPARSE_TAG_DEDUP) {
+        #[cfg(feature = "alloc")]
+        if let Some(opened) = self.opened.as_mut().filter(|opened| opened.node == node) {
+            let rec = &opened.bytes;
+            let data = match &opened.data {
+                Some(data) => data,
+                None => {
+                    let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
+                        .await?
+                        .ok_or(Detail::Attribute)?;
+                    opened.data.insert(OpenData::new(head, rec))
+                }
+            };
+            if let Some(runs) = &data.runs {
+                return read_stream(&mut self.dev, &self.info.geo, runs.iter().copied().map(Ok), data.head.size, data.head.initialized, offset, buf).await;
+            }
+            return stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &data.head, offset, buf).await;
+        }
+        let mut rec = [0u8; MAX_RECORD];
+        let header = self.node_record(node, &mut rec).await?;
+        let rec = &rec[..self.info.geo.mft_record_size];
+        if let Some((tag, _)) = self.reparse(node, rec).await? {
+            if is_link_tag(tag) { return Err(ErrorKind::Symlink.into()); }
+            if matches!(tag, raw::IO_REPARSE_TAG_WOF | raw::IO_REPARSE_TAG_DEDUP) {
                 return Err(Detail::ReparseData.into());
             }
         }
+        if header.is_dir() {
+            return Err(ErrorKind::IsADirectory.into());
+        }
+        let head = stream_head(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[])
+            .await?
+            .ok_or(Error::<D::Error>::from(Detail::Attribute))?;
         stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_DATA, &[], &head, offset, buf).await
     }
 
@@ -1583,16 +2201,26 @@ impl<D: BlockDevice> NtfsFs<D> {
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
         let mut rec = [0u8; MAX_RECORD];
-        if self.node_record(node, &mut rec).await?.is_dir() {
+        let header = self.node_record(node, &mut rec).await?;
+        let rec = &rec[..self.info.geo.mft_record_size];
+        let reparse = self.reparse(node, rec).await?;
+        if reparse.is_some_and(|(tag, _)| is_link_tag(tag)) {
+            return Err(ErrorKind::Symlink.into());
+        }
+        if header.is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
         if mode == OpenMode::Write {
             return Err(ErrorKind::ReadOnly.into());
         }
+        #[cfg(feature = "alloc")]
+        if reparse.is_none() {
+            self.opened = Some(OpenRecord { node, bytes: rec.into(), data: None });
+        }
         Ok(())
     }
 
-    /// Closes a file without keeping open state or accessing the device.
+    /// Releases cached metadata for the file without accessing the device.
     ///
     /// # Errors
     ///
@@ -1600,23 +2228,59 @@ impl<D: BlockDevice> NtfsFs<D> {
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         let _ = node;
+        #[cfg(feature = "alloc")]
+        if self.opened.as_ref().is_some_and(|opened| opened.node == node) {
+            self.opened = None;
+        }
         Ok(())
     }
 
-    /// NTFS here has no symlinks: every node fails with
-    /// [`ErrorKind::InvalidInput`].
+    /// Reads a Windows link target within the mounted volume, with `/` separators.
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorKind::InvalidInput`] for every valid node because this
-    /// reader does not interpret reparse points as symbolic links. Invalid
-    /// node references and failed device reads retain their own errors.
+    /// Returns [`ErrorKind::InvalidInput`] for an ordinary file,
+    /// [`ErrorKind::LimitExceeded`] if the buffer is too small, or
+    /// [`ErrorKind::Unsupported`] for absolute Windows targets. Use
+    /// [`read_windows_link`](Self::read_windows_link)
+    /// to inspect those targets. Corruption and device errors also propagate.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::ntfs", level = "trace", skip_all, fields(node = ?node, bytes = buf.len())))]
     pub async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+        Ok(self.read_link(node, buf, true).await?.as_bytes())
+    }
+
+    /// Reads the original UTF-8 spelling of a symbolic link or junction,
+    /// including Windows drive and namespace prefixes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] for a non-link,
+    /// [`ErrorKind::LimitExceeded`] if the buffer is too small, or an error
+    /// for an invalid node, malformed target, or device failure.
+    pub async fn read_windows_link<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b str, D::Error> {
+        self.read_link(node, buf, false).await
+    }
+
+    async fn read_link<'b>(&mut self, node: NodeId, buf: &'b mut [u8], normalize: bool) -> FsResult<&'b str, D::Error> {
         let mut rec = [0u8; MAX_RECORD];
         self.node_record(node, &mut rec).await?;
-        let _ = buf;
-        Err(ErrorKind::InvalidInput.into())
+        let rec = &rec[..self.info.geo.mft_record_size];
+        let (tag, head) = self.reparse(node, rec).await?.filter(|(tag, _)| is_link_tag(*tag)).ok_or(ErrorKind::InvalidInput)?;
+        let mut len = 0;
+        let relative = self.link_chars(node, rec, tag, &head, |c| {
+            if normalize && ((len == 0 && matches!(c, '\\' | '/')) || (len == 1 && c == ':')) {
+                return Err(ErrorKind::Unsupported.into());
+            }
+            let c = if normalize && c == '\\' { '/' } else { c };
+            let end = len + c.len_utf8();
+            c.encode_utf8(buf.get_mut(len..end).ok_or(ErrorKind::LimitExceeded)?);
+            len = end;
+            Ok(())
+        }).await?;
+        if normalize && !relative {
+            return Err(ErrorKind::Unsupported.into());
+        }
+        core::str::from_utf8(&buf[..len]).map_err(|_| Detail::ReparseLink.into())
     }
 }
 hadris_fs::__forward_filesystem! {
