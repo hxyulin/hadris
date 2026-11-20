@@ -16,11 +16,10 @@ const DOMAIN: &str = "hadris-cpio";
 /// have emitted part of the trailer. The output is not a retryable writer;
 /// appending another trailer can produce an invalid archive.
 ///
-/// `Display` describes the failed finish. The original [`PathError`], including
-/// its path and device error, is available through [`error`](Self::error) and
-/// [`source`](core::error::Error::source), so an error-chain printer shows each
-/// message once. Conversion into [`PathError`] or, with `std`, `std::io::Error`
-/// preserves that context and drops the output.
+/// `Display` includes the failure's context and path, if present. The original
+/// [`PathError`] is available through [`error`](Self::error) and
+/// [`source`](core::error::Error::source). Conversion into [`PathError`] or,
+/// with `std`, `std::io::Error` preserves that context and drops the output.
 #[cfg(feature = "write")]
 pub struct FinishError<W> {
     error: PathError,
@@ -71,7 +70,7 @@ impl<W> fmt::Debug for FinishError<W> {
 #[cfg(feature = "write")]
 impl<W> fmt::Display for FinishError<W> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("finishing the cpio archive failed")
+        write!(f, "finishing the cpio archive failed: {}", self.error)
     }
 }
 

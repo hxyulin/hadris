@@ -60,6 +60,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 unsafe_op_in_unsafe_fn = "warn"
 
 [workspace.lints.clippy]
+byte_char_slices = "allow"
+collapsible_if = "allow"
+manual_is_multiple_of = "allow"
+unnecessary_sort_by = "allow"
 undocumented_unsafe_blocks = "warn"
 missing_safety_doc = "warn"
 missing_errors_doc = "warn"

@@ -70,7 +70,10 @@ fn sync_constructors_return_the_stream_and_original_cause() {
         assert_eq!(failure.error().device_error(), Some(&Fault));
         let source = core::error::Error::source(&failure).unwrap();
         assert!(source.is::<hadris_io::Error<Fault>>());
-        assert_eq!(format!("{failure}"), "stream-device construction failed");
+        assert_eq!(
+            format!("{failure}"),
+            "stream-device construction failed: measuring the stream failed"
+        );
         let (error, mut stream) = failure.into_parts();
         assert_eq!(error.device_error(), Some(&Fault));
         assert_eq!(stream.position, 16);
@@ -151,6 +154,10 @@ mod asynchronous {
             .expect("the injected seek must fail");
         assert_eq!(failure.error().device_error(), Some(&Fault));
         assert_eq!(failure.error().location(), Some(Location::Byte(16)));
+        assert_eq!(
+            format!("{failure}"),
+            "stream-device construction failed: measuring failed at byte 16"
+        );
         let mut stream = failure.into_stream();
         assert_eq!(stream.marker, 42);
         assert_eq!(stream.position, 16);

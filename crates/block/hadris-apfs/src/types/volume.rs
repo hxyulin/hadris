@@ -2,11 +2,9 @@
 
 use crate::types::filesystem::DirectoryKeyLayout;
 #[cfg(feature = "alloc")]
-use crate::types::filesystem::{NameComparison, NormalizationRule};
+use crate::types::filesystem::NameComparison;
 use crate::types::object::{ObjectHeader, ObjectType};
 use crate::types::{le_u32, le_u64, take};
-#[cfg(feature = "alloc")]
-use hadris_fs::CaseRule;
 
 /// Magic value in volume superblocks (`APSB` on disk).
 pub const VOLUME_MAGIC: [u8; 4] = *b"APSB";
@@ -158,17 +156,9 @@ impl VolumeSuperblock {
     /// Returns how the volume compares directory entry names.
     #[cfg(feature = "alloc")]
     pub const fn name_comparison(&self) -> NameComparison {
-        NameComparison::new(
-            if self.is_case_insensitive() {
-                CaseRule::InsensitivePreserving
-            } else {
-                CaseRule::Sensitive
-            },
-            if self.is_normalization_insensitive() {
-                NormalizationRule::Insensitive
-            } else {
-                NormalizationRule::Sensitive
-            },
+        NameComparison::from_flags(
+            self.is_case_insensitive(),
+            self.is_normalization_insensitive(),
         )
     }
 

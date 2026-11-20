@@ -700,9 +700,9 @@ jobs:
             . -> target
             tests -> target
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - name: Run clippy on conformance suite
-        run: cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
+        run: cargo clippy --locked --manifest-path tests/Cargo.toml --all-targets -- -D warnings
 
   clippy-platforms:
     needs: changes
@@ -733,7 +733,7 @@ jobs:
         with:
           key: clippy-${{ matrix.target }}
       - name: Lint platform-specific code
-        run: cargo clippy --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings -A clippy::manual_is_multiple_of -A clippy::collapsible_if -A clippy::unnecessary_sort_by -A clippy::byte_char_slices
+        run: cargo clippy --locked --workspace --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
 
   clippy-features:
     needs: changes

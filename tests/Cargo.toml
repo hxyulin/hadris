@@ -55,3 +55,12 @@ tempfile = "3"
 fscommon = "0.1"
 
 [workspace]
+
+[workspace.lints.clippy]
+byte_char_slices = "allow"
+collapsible_if = "allow"
+manual_is_multiple_of = "allow"
+unnecessary_sort_by = "allow"
+
+[lints]
+workspace = true

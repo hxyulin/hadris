@@ -195,7 +195,7 @@ nix develop -c env HADRIS_REQUIRE_EXTERNAL_TOOLS=1 \
 
 # Match the CI lint and format gates for the suite
 cargo fmt --manifest-path tests/Cargo.toml --all -- --check
-cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings
+cargo clippy --locked --manifest-path tests/Cargo.toml --all-targets -- -D warnings
 ```
 
 | Variable | Effect |

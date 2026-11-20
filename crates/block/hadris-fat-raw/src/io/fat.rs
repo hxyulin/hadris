@@ -1,6 +1,6 @@
 use hadris_fs::{DateTime, Error, ErrorKind, FsResult};
 
-use super::block::{load, put, read_bytes, store, write_bytes, write_zeros};
+use super::block::{barrier, load, put, read_bytes, store, write_bytes, write_zeros};
 use super::storage::BlockDevice;
 use crate::boot::{BOOT_SECTOR_LEN, Geometry, check_fs_info, parse_boot};
 use crate::bpb::RawFsInfo;
@@ -343,9 +343,7 @@ async fn put_entry<D: BlockDevice>(
     value: u32,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, fat).await?;
-    if fat.durability() != hadris_fs::Durability::Buffered {
-        dev.flush().await?;
-    }
+    barrier(dev, fat.durability()).await?;
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let copy = fat.geo.active_fat() ^ step;
@@ -799,9 +797,7 @@ async fn patch<D: BlockDevice>(
     tail: Option<u32>,
 ) -> FsResult<(), D::Error> {
     begin_write(dev, block, fat).await?;
-    if fat.durability() != hadris_fs::Durability::Buffered {
-        dev.flush().await?;
-    }
+    barrier(dev, fat.durability()).await?;
     let kind = fat.geo.kind();
     let len = kind.entry_len();
     let size = block.size as u64;
@@ -981,8 +977,8 @@ pub async fn write_slots<D: BlockDevice>(
 ) -> FsResult<(), D::Error> {
     *written = 0;
     while *written < count {
-        if *written + 1 == count && fat.durability() != hadris_fs::Durability::Buffered {
-            dev.flush().await?;
+        if *written + 1 == count {
+            barrier(dev, fat.durability()).await?;
         }
         let at = slot_offset(dev, block, fat, walk, first + *written)
             .await?
