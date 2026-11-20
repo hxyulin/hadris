@@ -314,6 +314,33 @@ fn appended_sessions_report_ignored_hybrid_options() {
     assert!(bytes[..512].iter().all(|&byte| byte == 0));
 }
 
+/// A rewrite grows the partition of an MBR-only hybrid image, as xorriso's
+/// isohybrid layout has, past the disk size the old table was read with.
+#[test]
+fn rewritten_sessions_grow_an_mbr_only_partition() {
+    let tree = sample(false, false);
+    let bytes = image(&tree, &IsoOptions::default().with_hybrid(Hybrid::mbr())).into_inner();
+    let mut session = Session::open(bytes).unwrap();
+    session
+        .tree_mut()
+        .insert("added/new.txt", Node::file(Content::bytes("brand new")))
+        .unwrap();
+    let opts = session.options();
+    let report = session.write(&opts, SessionMode::Rewrite).unwrap();
+    let bytes = session.into_inner();
+    let disk = hadris_part::sync::read(&mut MemDevice::new(
+        bytes.clone(),
+        hadris_storage::BlockSize::new(512).unwrap(),
+    ))
+    .unwrap();
+    assert!(matches!(disk.table(), hadris_part::PartitionTable::Mbr(_)));
+    let ends: Vec<u64> = disk.partitions().map(|p| p.end()).collect();
+    assert_eq!(ends, [report.size() / 512]);
+    assert_eq!(bytes.len() as u64, report.size());
+    let mut iso = IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new()).unwrap();
+    assert_eq!(iso.read_to_vec("/added/new.txt").unwrap(), b"brand new");
+}
+
 #[cfg(feature = "async")]
 #[test]
 fn async_sessions_match_sync_ones() {

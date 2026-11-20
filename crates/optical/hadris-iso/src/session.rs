@@ -938,6 +938,7 @@ impl<D: BlockDevice> Session<D> {
         let bootstrap = *tables.disk.bootstrap();
         let mut disk = match tables.disk.into_table() {
             PartitionTable::Mbr(mut mbr) => {
+                mbr.set_block_count(total * 4).map_err(bad)?;
                 let resize: Vec<(usize, u64)> = mbr
                     .partitions()
                     .filter(|p| extends(p.start(), p.len()))

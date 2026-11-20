@@ -139,6 +139,26 @@ impl Mbr {
         self.block_count
     }
 
+    /// Changes the number of blocks of the disk to `block_count`, which an
+    /// MBR does not record, so partitions can grow onto a disk that grew.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] with [`Detail::OutOfBounds`]
+    /// naming the first partition that would end past `block_count`. The
+    /// table is unchanged on failure.
+    pub fn set_block_count(&mut self, block_count: u64) -> Result<(), TableError> {
+        let past = self.primary.iter().position(|entry| {
+            !entry.is_empty()
+                && u64::from(entry.start_lba()) + u64::from(entry.sector_count()) > block_count
+        });
+        if let Some(slot) = past {
+            return Err(TableError::invalid(Detail::OutOfBounds).at(slot));
+        }
+        self.block_count = block_count;
+        Ok(())
+    }
+
     /// The disk's block size.
     pub const fn block_size(&self) -> BlockSize {
         self.block_size
@@ -559,6 +579,19 @@ mod tests {
 
     fn table() -> Mbr {
         Mbr::new(100_000, BlockSize::new(512).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn block_count_changes_unless_a_partition_would_end_past_it() {
+        let mut mbr = table();
+        mbr.add(MbrEntry::new(MbrType::LINUX, 100, 100)).unwrap();
+        assert!(mbr.resize(0, 150_000).is_err());
+        mbr.set_block_count(200_000).unwrap();
+        mbr.resize(0, 150_000).unwrap();
+        let err = mbr.set_block_count(150_099).unwrap_err();
+        assert_eq!((err.detail(), err.index()), (Detail::OutOfBounds, Some(0)));
+        assert_eq!(mbr.block_count(), 200_000);
+        mbr.set_block_count(150_100).unwrap();
     }
 
     #[test]
