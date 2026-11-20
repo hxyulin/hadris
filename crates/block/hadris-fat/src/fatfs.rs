@@ -1506,11 +1506,19 @@ impl<D: BlockDevice> FatFs<D> {
     }
 
     async fn put_bytes(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
-        if !data.is_empty() && self.fat.durability() != hadris_fs::Durability::Buffered {
-            self.flush_device().await?;
+        if !data.is_empty() {
+            self.barrier().await?;
         }
         self.append_index = None;
         self.put_data(offset, Some(data), data.len()).await
+    }
+
+    async fn barrier(&mut self) -> FsResult<(), D::Error> {
+        if self.read_only {
+            return Ok(());
+        }
+        let result = rawio::barrier(&mut self.dev, self.fat.durability()).await;
+        self.note(result)
     }
 
     async fn flush_device(&mut self) -> FsResult<(), D::Error> {
@@ -1518,12 +1526,7 @@ impl<D: BlockDevice> FatFs<D> {
             return Ok(());
         }
         let result = self.dev.flush().await;
-        if let Err(err) = &result
-            && err.kind() == ErrorKind::ReadOnly
-        {
-            self.read_only = true;
-        }
-        result
+        self.note(result)
     }
 
     async fn read_short(&mut self, offset: u64) -> FsResult<ShortEntry, D::Error> {
@@ -1556,9 +1559,7 @@ impl<D: BlockDevice> FatFs<D> {
         size: u32,
         hint: ChainPos,
     ) -> FsResult<(), D::Error> {
-        if self.fat.durability() != hadris_fs::Durability::Buffered {
-            self.flush_device().await?;
-        }
+        self.barrier().await?;
         let next = Node { first, size, hint, ..*state };
         let mut entry = self.read_short(state.entry).await?;
         self.touch(&mut entry, &next);

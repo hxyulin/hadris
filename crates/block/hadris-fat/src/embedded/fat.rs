@@ -1927,9 +1927,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
     async fn put(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
         if !data.is_empty() {
             self.begin_write().await?;
-            if self.fat.durability() != hadris_fs::Durability::Buffered {
-                self.flush_device().await?;
-            }
+            self.barrier().await?;
         }
         let result = rawio::write_bytes(&mut self.dev, &mut self.block, offset, data).await;
         self.note(result)
@@ -1937,6 +1935,14 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
 
     async fn set_fat(&mut self, cluster: u32, value: u32) -> FsResult<(), D::Error> {
         let result = rawio::set(&mut self.dev, &mut self.block, &mut self.fat, cluster, value).await;
+        self.note(result)
+    }
+
+    async fn barrier(&mut self) -> FsResult<(), D::Error> {
+        if self.read_only {
+            return Ok(());
+        }
+        let result = rawio::barrier(&mut self.dev, self.fat.durability()).await;
         self.note(result)
     }
 

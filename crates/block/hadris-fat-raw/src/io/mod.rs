@@ -524,7 +524,7 @@ pub mod sync {
     #[path = "fat.rs"]
     mod fat;
 
-    pub use block::{load, read_bytes, store, write_bytes, write_zeros};
+    pub use block::{barrier, load, read_bytes, store, write_bytes, write_zeros};
     pub use check::check;
     pub use fat::{
         allocate, allocate_after, allocate_run, allocate_run_after, begin_write, clear_dirty,
@@ -553,7 +553,7 @@ pub mod async_ {
     #[path = "fat.rs"]
     mod fat;
 
-    pub use block::{load, read_bytes, store, write_bytes, write_zeros};
+    pub use block::{barrier, load, read_bytes, store, write_bytes, write_zeros};
     pub use check::check;
     pub use fat::{
         allocate, allocate_after, allocate_run, allocate_run_after, begin_write, clear_dirty,

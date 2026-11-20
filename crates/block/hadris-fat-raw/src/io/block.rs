@@ -1,10 +1,22 @@
-use hadris_fs::FsResult;
+use hadris_fs::{Durability, FsResult};
 use hadris_storage::BlockIndex;
 
 use super::storage::BlockDevice;
 use crate::io::BlockBuf;
 
 io_transform! {
+
+/// Flushes pending writes before an operation that depends on them.
+/// Buffered durability skips this barrier.
+///
+/// # Errors
+/// Propagates a device flush error.
+pub async fn barrier<D: BlockDevice>(dev: &mut D, durability: Durability) -> FsResult<(), D::Error> {
+    if durability != Durability::Buffered {
+        dev.flush().await?;
+    }
+    Ok(())
+}
 
 /// Reads device block `index` into `block`, unless it already holds it.
 ///

@@ -48,6 +48,9 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat-raw:** The sync and async `io::barrier` primitives flush write
+  dependencies according to the FAT or exFAT durability policy.
+
 - **hadris-fs:** Drivers can mark a `DirEntry`'s metadata as complete.
   `read_tree` reuses it for files and symlinks, validating partial entries
   of those types with `stat`.
