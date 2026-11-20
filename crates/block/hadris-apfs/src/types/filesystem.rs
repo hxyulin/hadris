@@ -534,12 +534,22 @@ impl NameComparison {
     /// [`VolumeSuperblock::name_comparison`](crate::types::VolumeSuperblock::name_comparison)
     /// to derive both policies from an APFS volume's flags.
     pub const fn new(case: CaseRule, normalization: NormalizationRule) -> Self {
-        Self {
-            case_insensitive: matches!(
+        Self::from_flags(
+            matches!(
                 case,
                 CaseRule::Insensitive | CaseRule::InsensitivePreserving
             ),
-            normalization_insensitive: matches!(normalization, NormalizationRule::Insensitive),
+            matches!(normalization, NormalizationRule::Insensitive),
+        )
+    }
+
+    pub(super) const fn from_flags(
+        case_insensitive: bool,
+        normalization_insensitive: bool,
+    ) -> Self {
+        Self {
+            case_insensitive,
+            normalization_insensitive,
         }
     }
 
