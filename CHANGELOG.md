@@ -49,7 +49,10 @@ Each published package owns its version and may be released independently.
 ### Changed
 
 - **hadris-fs:** Drivers can mark a `DirEntry`'s metadata as complete.
-  `read_tree` reuses it and still validates entries with partial metadata.
+  `read_tree` reuses it for files and symlinks, validating partial entries
+  of those types with `stat`.
+- **hadris-fs:** `read_tree_with_options` can omit symlinks whose targets
+  the source driver cannot export, such as Windows junctions.
 
 - **hadris-ntfs:** Symbolic link and junction reparse points appear as
   symlinks. `NtfsFs::read_windows_link` reads the original Windows target.

@@ -273,6 +273,31 @@ impl DeviceNumber {
     }
 }
 
+/// Options for reading a volume directory into a tree.
+#[cfg(feature = "alloc")]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ReadTreeOptions {
+    pub(crate) skip_unsupported_symlinks: bool,
+}
+
+#[cfg(feature = "alloc")]
+impl ReadTreeOptions {
+    /// Creates options that report errors for unsupported symlink targets.
+    pub const fn new() -> Self {
+        Self {
+            skip_unsupported_symlinks: false,
+        }
+    }
+
+    /// Omits symlinks encountered during a directory walk when their
+    /// driver returns `Unsupported` from `readlink`. A symlink selected
+    /// as the root of the walk still reports its error.
+    pub const fn with_skip_unsupported_symlinks(mut self, skip: bool) -> Self {
+        self.skip_unsupported_symlinks = skip;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

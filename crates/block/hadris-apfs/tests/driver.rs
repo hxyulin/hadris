@@ -43,7 +43,9 @@ fn native_xattrs_read_inline_and_stream_values_at_offsets() {
         attributes,
         [
             ("user.inline".into(), 6),
-            ("user.stream".into(), payload.len() as u64)
+            ("user.stream".into(), payload.len() as u64),
+            ("user.missing".into(), payload.len() as u64),
+            ("user.sparse".into(), payload.len() as u64)
         ]
     );
     let mut buf = [0xA5; 5];
@@ -55,6 +57,15 @@ fn native_xattrs_read_inline_and_stream_values_at_offsets() {
     );
     assert_eq!(&buf, &payload[4..9]);
     assert_eq!(
+        fs.read_xattr(file, "user.missing", 0, &mut buf)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Corrupt
+    );
+    assert_eq!(&buf, &payload[4..9]);
+    assert_eq!(fs.read_xattr(file, "user.sparse", 0, &mut buf).unwrap(), 5);
+    assert_eq!(buf, [0; 5]);
+    assert_eq!(
         fs.read_xattr(file, "user.stream", u64::MAX, &mut buf)
             .unwrap(),
         0
@@ -64,6 +75,64 @@ fn native_xattrs_read_inline_and_stream_values_at_offsets() {
             .unwrap_err()
             .kind(),
         ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn malformed_duplicate_symlink_target_is_corrupt() {
+    let mut fs = mount(duplicate_symlink_image());
+    let link = fs.lookup(fs.root(), Name::new("link")).unwrap();
+    assert_eq!(fs.stat(link).unwrap_err().kind(), ErrorKind::Corrupt);
+}
+
+#[test]
+fn volume_extent_preflight_follows_zero_byte_reads() {
+    let mut container = hadris_apfs::sync::Container::open(device(build_image())).unwrap();
+    let checkpoint = container.latest_superblock().unwrap();
+    let volume = &container.volume_superblocks(&checkpoint).unwrap()[0];
+    let extents = [block_extent(0, 1, IMAGE_BLOCKS as u64)];
+    let mut out = [0xA5];
+    assert_eq!(
+        container
+            .read_volume_extents_at(volume, &extents, 1, 1, &mut out)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        container
+            .read_volume_extents_at(volume, &extents, 1, 0, &mut [])
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        container
+            .read_volume_extents_at(volume, &extents, 1, 0, &mut out)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Corrupt
+    );
+    assert_eq!(out, [0xA5]);
+}
+
+#[cfg(feature = "compression")]
+#[test]
+fn oversized_inline_compression_fails_preflight_in_both_read_apis() {
+    let image = compressed_image(3, 4 * 1024 * 1024 + 1, &[], &[]);
+    let mut container = hadris_apfs::sync::Container::open(device(image.clone())).unwrap();
+    let checkpoint = container.latest_superblock().unwrap();
+    let volume = &container.volume_superblocks(&checkpoint).unwrap()[0];
+    assert_eq!(
+        container
+            .read_file(volume, 16, usize::MAX)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    let mut fs = mount(image);
+    let file = fs.lookup(fs.root(), Name::new("file0.txt")).unwrap();
+    assert_eq!(
+        fs.read(file, 0, &mut [0]).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
     );
 }
 

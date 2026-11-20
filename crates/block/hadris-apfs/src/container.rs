@@ -1555,7 +1555,11 @@ where
     async fn open_xattr<'a>(&mut self, volume: &VolumeSuperblock, attr: &XattrRecord<'a>) -> FsResult<XattrData<'a>, D::Error> {
         if let Some(stream) = attr.stream {
             let extents = self.file_extents(volume, stream.id).await?;
-            self.check_volume_extents(volume, &extents)?;
+            if stream.allocated_size != 0 && !extents.iter().any(|extent| extent.physical_block != 0 && extent.length != 0) {
+                return Err(ApfsError::InvalidValue("missing allocated extended attribute extents").into());
+            }
+            self.check_volume_credentials(volume, &extents)?;
+            self.check_extents(&extents, true)?;
             return Ok(XattrData::Stream { size: stream.size, extents });
         }
         Ok(XattrData::Inline(attr.data))
@@ -1598,6 +1602,16 @@ where
     }
 
     #[cfg(feature = "compression")]
+    fn inline_compression_size(header: crate::decmpfs::Header, attr: &XattrRecord<'_>) -> FsResult<usize, D::Error> {
+        use crate::decmpfs;
+        let encoded_size = attr.len().checked_sub(decmpfs::HEADER_SIZE as u64).ok_or_else(decmpfs::invalid)?;
+        if encoded_size > decmpfs::CHUNK_SIZE as u64 + 1 || header.size > 4 * 1024 * 1024 {
+            return Err(ErrorKind::LimitExceeded.into());
+        }
+        Ok(encoded_size as usize)
+    }
+
+    #[cfg(feature = "compression")]
     pub(crate) async fn read_compressed_at(
         &mut self, volume: &VolumeSuperblock, inode: u64, header: crate::decmpfs::Header,
         entry: &OwnedEntry, offset: u64, buf: &mut [u8],
@@ -1608,11 +1622,8 @@ where
         if len == 0 { return Ok(0); }
         if layout == Layout::Attribute {
             let attr = XattrRecord::parse(&entry.key, &entry.value)?;
-            let encoded_size = attr.len().checked_sub(decmpfs::HEADER_SIZE as u64).ok_or_else(decmpfs::invalid)?;
-            if encoded_size > CHUNK_SIZE as u64 + 1 || header.size > 4 * 1024 * 1024 {
-                return Err(ErrorKind::LimitExceeded.into());
-            }
-            let mut encoded = alloc::vec![0; encoded_size as usize];
+            let encoded_size = Self::inline_compression_size(header, &attr)?;
+            let mut encoded = alloc::vec![0; encoded_size];
             let data = self.open_xattr(volume, &attr).await?;
             self.read_compression_bytes(&data, decmpfs::HEADER_SIZE as u64, &mut encoded).await?;
             let mut decoded = alloc::vec![0; header.size as usize];
@@ -1759,7 +1770,10 @@ where
             #[cfg(feature = "compression")]
             {
                 let (header, entry) = self.compression_attribute(volume, inode.id).await?;
-                header.encoding()?;
+                if header.encoding()?.1 == crate::decmpfs::Layout::Attribute && max_bytes != 0 && header.size != 0 {
+                    let attr = XattrRecord::parse(&entry.key, &entry.value)?;
+                    Self::inline_compression_size(header, &attr)?;
+                }
                 let mut output = Self::file_buffer(header.size, max_bytes)?;
                 let read = self.read_compressed_at(volume, inode.id, header, &entry, 0, &mut output).await?;
                 output.truncate(read);
@@ -1832,12 +1846,12 @@ where
         offset: u64,
         buf: &mut [u8],
     ) -> FsResult<usize, D::Error> {
-        self.check_volume_extents(volume, extents)?;
-        self.read_checked_extents_at(extents, size, offset, buf).await
+        self.check_volume_credentials(volume, extents)?;
+        self.read_extents_inner(extents, size, offset, buf, true).await
     }
 
     #[cfg(feature = "alloc")]
-    fn check_volume_extents(&self, volume: &VolumeSuperblock, extents: &[FileExtentRecord]) -> FsResult<(), D::Error> {
+    fn check_volume_credentials(&self, volume: &VolumeSuperblock, extents: &[FileExtentRecord]) -> FsResult<(), D::Error> {
         #[cfg(feature = "encryption")]
         {
             self.check_unlocked_volume(volume)?;
@@ -1849,8 +1863,8 @@ where
             }
         }
         #[cfg(not(feature = "encryption"))]
-        let _ = volume;
-        self.check_extents(extents, true)
+        let _ = (volume, extents);
+        Ok(())
     }
 
     #[cfg(feature = "alloc")]

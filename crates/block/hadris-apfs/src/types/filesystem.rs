@@ -404,6 +404,7 @@ pub struct XattrRecord<'a> {
 pub(crate) struct XattrStream {
     pub(crate) id: u64,
     pub(crate) size: u64,
+    pub(crate) allocated_size: u64,
 }
 
 impl<'a> XattrRecord<'a> {
@@ -430,7 +431,15 @@ impl<'a> XattrRecord<'a> {
                     ));
                 }
                 let size = u64::from_le_bytes(crate::types::take(payload, 8)?);
-                (&[][..], Some(XattrStream { id, size }))
+                let allocated_size = u64::from_le_bytes(crate::types::take(payload, 16)?);
+                (
+                    &[][..],
+                    Some(XattrStream {
+                        id,
+                        size,
+                        allocated_size,
+                    }),
+                )
             }
             _ => return Err(crate::ApfsError::InvalidValue("extended attribute storage")),
         };

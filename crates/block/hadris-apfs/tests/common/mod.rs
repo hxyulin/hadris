@@ -476,9 +476,29 @@ pub fn xattr_image() -> Vec<u8> {
         8,
         &(file_contents(0).len() as u64).to_le_bytes(),
     );
+    put(&mut stream, 16, &(BLOCK as u64).to_le_bytes());
     entries.push(xattr_entry(16, "user.stream", 1, &stream));
     entries.push(extent_entry(107, BLOCK as u64, 10));
+    put(&mut stream, 0, &108u64.to_le_bytes());
+    entries.push(xattr_entry(16, "user.missing", 1, &stream));
+    put(&mut stream, 16, &0u64.to_le_bytes());
+    entries.push(xattr_entry(16, "user.sparse", 1, &stream));
     build_image_records(Variant::Plain, entries)
+}
+
+#[allow(dead_code)]
+pub fn duplicate_symlink_image() -> Vec<u8> {
+    let target = hadris_apfs::types::filesystem::SYMLINK_XATTR_NAME;
+    build_image_records(
+        Variant::Plain,
+        vec![
+            inode_entry(2, 2, 0o040755, 0),
+            drec_entry(2, "link", 16),
+            inode_entry(16, 16, 0o120777, 0),
+            xattr_entry(16, target, 2, b"file0.txt\0"),
+            xattr_entry(16, target, 1, b"truncated"),
+        ],
+    )
 }
 
 #[allow(dead_code)]
@@ -528,6 +548,26 @@ pub fn snapshot_image() -> Vec<u8> {
         5 * BLOCK,
         &btree_node(5, true, true, 0, Some((16, 16)), 0x10, false, &omap),
     );
+    put(
+        &mut image,
+        2 * BLOCK,
+        &btree_node(
+            2,
+            true,
+            true,
+            0,
+            Some((16, 16)),
+            0x10,
+            false,
+            &[omap_entry(VOLUME_OID, 5, 3, 0)],
+        ),
+    );
+    put(&mut image, 96, &6u64.to_le_bytes());
+    for block in [0, 1, 2, 4, 5, 20, 21] {
+        let mut bytes = image[block * BLOCK..(block + 1) * BLOCK].to_vec();
+        put(&mut bytes, 16, &5u64.to_le_bytes());
+        put(&mut image, block * BLOCK, &seal(bytes));
+    }
     image
 }
 

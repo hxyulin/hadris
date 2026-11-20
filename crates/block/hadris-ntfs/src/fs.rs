@@ -892,21 +892,37 @@ async fn read_lznt1_unit<D: BlockDevice>(
     let mut logical = 0;
     let mut encoded = [0; CHUNK_BYTES];
     let mut decoded = [0; CHUNK_BYTES];
+    let mut window = [0; 512];
+    // Bound header read-ahead to the current device block and mapping cluster.
+    let width = (window.len() as u64).min(u64::from(dev.block_size().get())).min(info.geo.cluster_size);
+    let mut window_start = input;
+    let mut window_end = input;
     out.fill(0);
     while logical < end && input < stored_end {
         if stored_end - input < 2 { return Err(Detail::CompressionData.into()); }
-        let mut header = [0; 2];
-        let read = stream_payload(dev, info, rec, base, kind, name, payload, input, &mut header).await?;
-        if read != header.len() { return Err(Detail::CompressionData.into()); }
+        if input + 2 > window_end {
+            let len = (width - input % width).max(2).min(stored_end - input) as usize;
+            let read = stream_payload(dev, info, rec, base, kind, name, payload, input, &mut window[..len]).await?;
+            if read != len { return Err(Detail::CompressionData.into()); }
+            window_start = input;
+            window_end = input + len as u64;
+        }
+        let at = (input - window_start) as usize;
+        let header = record::u16_at(&window, at);
         input += 2;
-        let Some(chunk) = Chunk::header(u16::from_le_bytes(header))? else { break };
+        let Some(chunk) = Chunk::header(header)? else { break };
         let next = input.checked_add(chunk.len as u64).ok_or(Detail::CompressionData)?;
         if next > stored_end { return Err(Detail::CompressionData.into()); }
         let after = logical + CHUNK_BYTES as u64;
         if after > offset {
             let raw = &mut encoded[..chunk.len];
-            if stream_payload(dev, info, rec, base, kind, name, payload, input, raw).await? != raw.len() {
-                return Err(Detail::CompressionData.into());
+            let cached = ((window_end - input) as usize).min(raw.len());
+            let at = (input - window_start) as usize;
+            raw[..cached].copy_from_slice(&window[at..at + cached]);
+            let rest = &mut raw[cached..];
+            if !rest.is_empty() {
+                let read = stream_payload(dev, info, rec, base, kind, name, payload, input + cached as u64, rest).await?;
+                if read != rest.len() { return Err(Detail::CompressionData.into()); }
             }
             chunk.decode(raw, &mut decoded)?;
             let from = logical.max(offset);
@@ -1087,6 +1103,17 @@ async fn mft_base<D: BlockDevice>(
     }
     match record::find_instance(record, raw::ATTR_DATA, &[], 0)? {
         Some(Attr { flags: 0, body: Body::NonResident(nr), .. }) if nr.initialized_size >= record.len() as u64 => {
+            let clusters = Runs::new(nr.runs).try_fold(0u64, |clusters, run| {
+                let run = run?;
+                let lcn = run.lcn.ok_or(Detail::DataRun)?;
+                if lcn.checked_add(run.len).is_none_or(|end| end > geo.total_clusters) {
+                    return Err(Detail::OutsideVolume);
+                }
+                clusters.checked_add(run.len).ok_or(Detail::DataRun)
+            })?;
+            if clusters < (record.len() as u64).div_ceil(geo.cluster_size) {
+                return Err(Detail::DataRun.into());
+            }
             MftExtents::new(&nr).ok_or_else(|| Detail::Attribute.into())
         }
         _ => Err(Detail::Attribute.into()),
@@ -1562,6 +1589,7 @@ impl<D: BlockDevice> NtfsFs<D> {
         let mut count = 0;
         let mut ordinal = 0;
         let mut best = None;
+        let mut failure = None;
         loop {
             let (buf, header) = if ordinal == 0 {
                 (index.root.root, 0x10)
@@ -1612,40 +1640,55 @@ impl<D: BlockDevice> NtfsFs<D> {
                 }
                 if order == Ordering::Greater { break; }
             }
-            if queued == 0 {
-                return Ok(best.map_or(KeyLookup::Missing, |(_, _, reference)| KeyLookup::Found(reference)));
+            loop {
+                if queued == 0 {
+                    if let Some(error) = failure { return Err(error); }
+                    return Ok(best.map_or(KeyLookup::Missing, |(_, _, reference)| KeyLookup::Found(reference)));
+                }
+                queued -= 1;
+                let vcn = pending[queued];
+                if visited[..count].contains(&vcn) {
+                    return Err(Detail::Index.into());
+                }
+                let Some(seen) = visited.get_mut(count) else { return Ok(KeyLookup::Scan) };
+                *seen = vcn;
+                count += 1;
+                match self.keyed_child(rec, base, index, vcn, block).await {
+                    Ok(child) => {
+                        ordinal = child + 1;
+                        break;
+                    }
+                    Err(error) => { failure.get_or_insert(error); }
+                }
             }
-            queued -= 1;
-            let vcn = pending[queued];
-            if visited[..count].contains(&vcn) {
-                return Err(Detail::Index.into());
-            }
-            let Some(seen) = visited.get_mut(count) else { return Ok(KeyLookup::Scan) };
-            *seen = vcn;
-            count += 1;
-            let unit = if self.info.geo.cluster_size <= index.root.block_size as u64 {
-                self.info.geo.cluster_size
-            } else {
-                record::FIXUP_STRIDE as u64
-            };
-            let bytes = vcn.checked_mul(unit).ok_or(Detail::Index)?;
-            let size = index.root.block_size as u64;
-            let child = bytes / size;
-            if bytes % size != 0 || child >= index.blocks {
-                return Err(Detail::Index.into());
-            }
-            let bitmap = index.bitmap.ok_or(Detail::Index)?;
-            let mut bits = [0];
-            let read = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_BITMAP, &raw::I30, &bitmap, child / 8, &mut bits).await?;
-            if read != 1 || bits[0] & (1 << (child % 8)) == 0 {
-                return Err(Detail::Index.into());
-            }
-            self.index_block(rec, base, index.allocation, index.root.block_size, child, block).await?;
-            if record::u64_at(block, 0x10) != vcn {
-                return Err(Detail::Index.into());
-            }
-            ordinal = child + 1;
         }
+    }
+
+    async fn keyed_child(
+        &mut self, rec: &[u8], base: u64, index: &Index<'_>, vcn: u64, block: &mut [u8; MAX_RECORD],
+    ) -> FsResult<u64, D::Error> {
+        let size = index.root.block_size as u64;
+        let unit = if self.info.geo.cluster_size <= size {
+            self.info.geo.cluster_size
+        } else {
+            record::FIXUP_STRIDE as u64
+        };
+        let bytes = vcn.checked_mul(unit).ok_or(Detail::Index)?;
+        let child = bytes / size;
+        if bytes % size != 0 || child >= index.blocks {
+            return Err(Detail::Index.into());
+        }
+        let bitmap = index.bitmap.ok_or(Detail::Index)?;
+        let mut bits = [0];
+        let read = stream_read(&mut self.dev, &self.info, rec, base, raw::ATTR_BITMAP, &raw::I30, &bitmap, child / 8, &mut bits).await?;
+        if read != 1 || bits[0] & (1 << (child % 8)) == 0 {
+            return Err(Detail::Index.into());
+        }
+        self.index_block(rec, base, index.allocation, index.root.block_size, child, block).await?;
+        if record::u64_at(block, 0x10) != vcn {
+            return Err(Detail::Index.into());
+        }
+        Ok(child)
     }
 
     fn lookup_reference(&self, reference: u64) -> FsResult<NodeId, D::Error> {

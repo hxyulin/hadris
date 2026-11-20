@@ -353,20 +353,29 @@ async fn read_mapped<D: BlockDevice>(
     Ok(())
 }
 
-async fn read_tagged<D: BlockDevice>(
-    info: &Info, dev: &mut D, at: Location, data: &mut [u8], tags: &[u16], bad: Detail,
-) -> FsResult<(u64, u16), D::Error> {
+fn prefer_io<E>(first: Error<E>, second: Error<E>) -> Error<E> {
+    if second.kind() == ErrorKind::Io && first.kind() != ErrorKind::Io { second } else { first }
+}
+
+async fn read_tagged<D: BlockDevice, T>(
+    info: &Info, dev: &mut D, at: Location, data: &mut [u8; MAX_BLOCK], mirror_only: bool, bad: Detail,
+    mut decode: impl FnMut(&[u8; MAX_BLOCK], u64, u16) -> FsResult<T, D::Error> + Send,
+) -> FsResult<T, D::Error> {
+    let bs = info.block_size as usize;
     let mut failure = None;
     for mirror in [false, true] {
+        if mirror_only && !mirror { continue; }
         let Some((offset, _)) = info.run(at, mirror) else { continue };
-        let read = read_bytes(dev, info.len, offset, data).await.and_then(|()| {
-            let tag = check_tag(data, None, at.block).map_err(|_| bad.corrupt())?;
-            let id = tag.identifier.get();
-            tags.contains(&id).then_some((offset, id)).ok_or_else(|| bad.corrupt())
+        let read = read_bytes(dev, info.len, offset, &mut data[..bs]).await.and_then(|()| {
+            let tag = check_tag(&data[..bs], None, at.block).map_err(|_| bad.corrupt())?;
+            decode(data, offset, tag.identifier.get())
         });
         match read {
             Ok(value) => return Ok(value),
-            Err(error) => { failure.get_or_insert(error); }
+            Err(error) => { failure = Some(match failure {
+                Some(first) => prefer_io(first, error),
+                None => error,
+            }); }
         }
     }
     Err(failure.unwrap_or_else(|| bad.corrupt()))
@@ -913,9 +922,10 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
     let fsd_at: LongAd = bytemuck::pod_read_unaligned(&lvd.contents_use);
     let fsd_at = Location::from_long(&fsd_at);
     let mut buf = [0u8; MAX_BLOCK];
-    let data = &mut buf[..block_size as usize];
-    read_tagged(&info, dev, fsd_at, data, &[tag::FILE_SET], Detail::FileSet).await?;
-    let fsd: FileSetDescriptor = bytemuck::pod_read_unaligned(&data[..512]);
+    let fsd: FileSetDescriptor = read_tagged(&info, dev, fsd_at, &mut buf, false, Detail::FileSet, |data, _, id| {
+        if id != tag::FILE_SET { return Err(Detail::FileSet.corrupt()); }
+        Ok(bytemuck::pod_read_unaligned(&data[..512]))
+    }).await?;
     info.root = Location::from_long(&fsd.root);
     info.volume.file_set = Identifier::decode(&fsd.file_set_identifier);
     let root = icb_at(&info, dev, info.root).await.map_err(|err| match err.kind() {
@@ -934,11 +944,17 @@ async fn mount<D: BlockDevice>(dev: &mut D, backup: bool) -> Result<Info, Error<
 
 /// Reads and decodes the entry at `at`.
 async fn icb_at<D: BlockDevice>(info: &Info, dev: &mut D, at: Location) -> Result<Icb, Error<D::Error>> {
+    icb_copy(info, dev, at, false).await
+}
+
+async fn icb_copy<D: BlockDevice>(info: &Info, dev: &mut D, at: Location, mirror_only: bool) -> Result<Icb, Error<D::Error>> {
     let bs = info.block_size as usize;
     info.check_range(at, bs as u64)?;
     let mut block = [0u8; MAX_BLOCK];
-    let (offset, id) = read_tagged(info, dev, at, &mut block[..bs], &[tag::FILE_ENTRY, tag::EXTENDED_FILE_ENTRY], Detail::Icb).await?;
-    Icb::parse(at, offset, id, block, bs)
+    read_tagged(info, dev, at, &mut block, mirror_only, Detail::Icb, |block, offset, id| {
+        if !matches!(id, tag::FILE_ENTRY | tag::EXTENDED_FILE_ENTRY) { return Err(Detail::Icb.corrupt()); }
+        Icb::parse(at, offset, id, *block, bs)
+    }).await
 }
 
 impl Walk {
@@ -991,10 +1007,12 @@ impl Walk {
         let bad = || Detail::AllocationDescriptor.corrupt();
         let bs = info.block_size as usize;
         info.check_range(at, bs as u64)?;
-        read_tagged(info, dev, at, &mut self.aed[..bs], &[tag::ALLOCATION_EXTENT], Detail::AllocationDescriptor).await?;
-        let aed: AllocationExtentDescriptor = bytemuck::pod_read_unaligned(&self.aed[..24]);
-        let ads = aed.allocation_descriptors_length.get() as usize;
-        let end = 24usize.checked_add(ads).filter(|&end| end <= bs).ok_or_else(bad)?;
+        let end = read_tagged(info, dev, at, &mut self.aed, false, Detail::AllocationDescriptor, |data, _, id| {
+            if id != tag::ALLOCATION_EXTENT { return Err(bad()); }
+            let aed: AllocationExtentDescriptor = bytemuck::pod_read_unaligned(&data[..24]);
+            let ads = aed.allocation_descriptors_length.get() as usize;
+            24usize.checked_add(ads).filter(|&end| end <= bs).ok_or_else(bad)
+        }).await?;
         self.aed_at = Some(at);
         Ok(end)
     }
@@ -1189,11 +1207,25 @@ async fn read_exact<D: BlockDevice>(
 
 /// The file identifier at `pos` in directory `dir`.
 async fn fid_at<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mut Resume, window: &mut DirectoryWindow, pos: u64) -> Result<Fid, Error<D::Error>> {
-    let first = fid_at_copy(info, dev, dir, resume, window, pos, false).await;
-    if first.is_err() && info.mirrored() {
-        return fid_at_copy(info, dev, dir, resume, window, pos, true).await.or(first);
-    }
-    first
+    let first = match fid_at_copy(info, dev, dir, resume, window, pos, false).await {
+        Err(error) if info.mirrored() => error,
+        result => return result,
+    };
+    let mirror;
+    let dir = if dir.allocation() == allocation::EMBEDDED {
+        let Some((offset, _)) = info.run(dir.at, true) else { return Err(first) };
+        if offset == dir.disk_offset { return Err(first); }
+        mirror = match icb_copy(info, dev, dir.at, true).await {
+            Ok(mirror) if mirror.is_dir() => mirror,
+            Ok(_) => return Err(first),
+            Err(error) => return Err(prefer_io(first, error)),
+        };
+        *resume = Resume::default();
+        &mirror
+    } else {
+        dir
+    };
+    fid_at_copy(info, dev, dir, resume, window, pos, true).await.map_err(|error| prefer_io(first, error))
 }
 
 async fn fid_at_copy<D: BlockDevice>(info: &Info, dev: &mut D, dir: &Icb, resume: &mut Resume, window: &mut DirectoryWindow, pos: u64, mirror: bool) -> Result<Fid, Error<D::Error>> {
@@ -1538,9 +1570,10 @@ impl<D: BlockDevice> UdfFs<D> {
     /// Entry corruption and device failures are propagated.
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::udf", level = "trace", skip_all, fields(node = ?node)))]
     pub async fn records(&mut self, node: NodeId, out: &mut [Extent]) -> FsResult<usize, D::Error> {
+        let slot = out.first_mut().ok_or(ErrorKind::LimitExceeded)?;
         let block_size = u64::from(self.info.block_size);
         let icb = self.icb(node).await?;
-        *out.first_mut().ok_or(ErrorKind::LimitExceeded)? = Extent::new(icb.disk_offset, block_size);
+        *slot = Extent::new(icb.disk_offset, block_size);
         Ok(1)
     }
 }

@@ -97,7 +97,7 @@ fn set_partition_end(bytes: &mut [u8], end: u64) {
     }
 }
 
-fn remap_root(bytes: &mut [u8]) {
+fn remap_root(bytes: &mut [u8]) -> (u64, u64, usize) {
     let mut fsd: hadris_udf_raw::FileSetDescriptor =
         bytemuck::pod_read_unaligned(&sector(bytes, PARTITION)[..512]);
     let root = PARTITION + u64::from(fsd.root.location.block.get());
@@ -125,6 +125,7 @@ fn remap_root(bytes: &mut [u8]) {
         );
         pos = end;
     }
+    (root - PARTITION, at, pos)
 }
 
 fn write_special(
@@ -157,7 +158,7 @@ fn metadata_partitions_read_the_mirror_when_descriptors_are_damaged() {
     let mirror = primary + blocks;
     let end = mirror + blocks;
     bytes.resize(bytes.len().max(end as usize * 2048), 0);
-    remap_root(&mut bytes);
+    let (root, dir, dir_len) = remap_root(&mut bytes);
     let original = bytes[PARTITION as usize * 2048..free as usize * 2048].to_vec();
     for start in [primary, mirror] {
         let offset = start as usize * 2048;
@@ -199,7 +200,8 @@ fn metadata_partitions_read_the_mirror_when_descriptors_are_damaged() {
         &ad((blocks * 2048) as u32, 0, mirror),
     );
     sector(&mut bytes, primary)[4] ^= 1;
-    sector(&mut bytes, primary + 3)[4] ^= 1;
+    sector(&mut bytes, primary + root)[172..176].copy_from_slice(&2048u32.to_le_bytes());
+    reseal(&mut bytes, primary + root, 168);
     sector(&mut bytes, primary + file - PARTITION)[4] ^= 1;
     let mut udf = open(bytes.clone());
     let kind = hadris_udf::PartitionKind::Metadata;
@@ -212,6 +214,34 @@ fn metadata_partitions_read_the_mirror_when_descriptors_are_damaged() {
     let mut out = [hadris_fs::Extent::new(0, 0)];
     udf.records(node, &mut out).unwrap();
     assert_eq!(out[0].offset(), (mirror + file - PARTITION) * 2048);
+    assert_eq!(
+        udf.records(node, &mut []).unwrap_err().kind(),
+        hadris_fs::ErrorKind::LimitExceeded
+    );
+
+    let mut identifiers = sector(&mut bytes, dir)[..dir_len].to_vec();
+    let mut pos = 0;
+    while pos < identifiers.len() {
+        let fid: hadris_udf_raw::FileIdentifierDescriptor =
+            bytemuck::pod_read_unaligned(&identifiers[pos..pos + 38]);
+        let end = pos + fid.total_len();
+        Tag::seal(
+            &mut identifiers[pos..end],
+            tag::FILE_IDENTIFIER,
+            fid.tag.version.get(),
+            root as u32,
+            fid.tag.crc_length.get() as usize,
+        );
+        pos = end;
+    }
+    set_ads(&mut bytes, mirror + root, 3, dir_len as u64, &identifiers);
+    identifiers[4] ^= 1;
+    set_ads(&mut bytes, primary + root, 3, dir_len as u64, &identifiers);
+    assert_eq!(
+        open(bytes.clone()).read_to_vec("/f.bin").unwrap(),
+        pattern(5000, 7)
+    );
+
     sector(&mut bytes, free)[4] ^= 1;
     assert_eq!(open(bytes).read_to_vec("/f.bin").unwrap(), pattern(5000, 7));
 }

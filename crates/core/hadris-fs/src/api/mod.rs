@@ -22,7 +22,7 @@ sync_only! {
     mod read_tree;
     mod volume;
     pub use handle::{File, ReadDir, WalkDir, WalkDirEntry};
-    pub use read_tree::read_tree;
+    pub use read_tree::{read_tree, read_tree_with_options};
     pub use volume::{Volume, VolumeGuard};
 }
 
@@ -32,6 +32,6 @@ async_only! {
     mod read_tree;
     mod volume;
     pub use handle::{File, ReadDir, WalkDir, WalkDirEntry};
-    pub use read_tree::read_tree;
+    pub use read_tree::{read_tree, read_tree_with_options};
     pub use volume::{Volume, VolumeGuard};
 }

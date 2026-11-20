@@ -91,6 +91,15 @@ fn mount_falls_back_to_the_mft_mirror() {
     let mirror = 500 * SECTOR;
     image.copy_within(mft..mft + REC, mirror);
     image[56..64].copy_from_slice(&500u64.to_le_bytes());
+    let mut bad_mapping = image.clone();
+    let run = bad_mapping[mft..mft + REC]
+        .windows(4)
+        .position(|pair| pair == [0x11, (MFT_RECORDS * REC / SECTOR) as u8, MFT_LCN as u8, 0])
+        .unwrap();
+    bad_mapping[mft + run + 1] = 0;
+    let mut recovered = open(bad_mapping);
+    assert!(recovered.info().used_mft_mirror());
+    assert_eq!(recovered.read_to_vec("/HELLO.TXT").unwrap(), b"hello ntfs");
     image[mft + SECTOR - 2] ^= 1;
 
     let mut fs = open(image.clone());
@@ -354,6 +363,18 @@ fn keyed_lookup_descends_only_the_relevant_index_blocks() {
     assert_eq!(fs.lookup(dir, name("M.Txt")).unwrap().get(), reference(21));
 
     image[INDX_LCN * SECTOR + REC] ^= 1;
+    let mut tied = image.clone();
+    let mut left = index_entry(19, "M.Txt", false, raw::FILE_NAME_POSIX);
+    left.extend(last_entry());
+    tied[INDX_LCN * SECTOR..INDX_LCN * SECTOR + REC].copy_from_slice(&indx(&left));
+    let mut fs = open(tied);
+    let dir = fs.lookup(fs.root(), name("SUBDIR")).unwrap();
+    assert_eq!(fs.lookup(dir, name("M.Txt")).unwrap().get(), reference(19));
+    assert_eq!(
+        fs.lookup(dir, name("m.txt")).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+
     let mut fs = open(image);
     let dir = fs.lookup(fs.root(), name("SUBDIR")).unwrap();
     assert_eq!(
@@ -1035,6 +1056,19 @@ fn reparse_links_keep_windows_targets_separate_from_volume_paths() {
     assert_eq!(
         fs.readlink(junction, &mut buf).unwrap_err().kind(),
         ErrorKind::Unsupported
+    );
+    let vol = hadris_fs::sync::Volume::new(fs);
+    assert_eq!(
+        hadris_fs::sync::read_tree(&vol, "/").err().unwrap().kind(),
+        ErrorKind::Unsupported
+    );
+    let options = hadris_fs::ReadTreeOptions::new().with_skip_unsupported_symlinks(true);
+    let tree = hadris_fs::sync::read_tree_with_options(&vol, "/", options).unwrap();
+    assert!(tree.get("SUBDIR").is_none());
+    assert!(tree.get("HELLO.TXT").is_some());
+    assert_eq!(
+        tree.get("BIN.DAT").unwrap().target(),
+        Some(&b"./HELLO.TXT"[..])
     );
 }
 

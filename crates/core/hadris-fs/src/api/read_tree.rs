@@ -3,7 +3,7 @@ use super::volume::{Held, Volume};
 use crate::tree::Content;
 use crate::{
     DeviceNumber, DirCursor, ErrorKind, FileType, FsResult, Metadata, Node, NodeId,
-    PathError, Resolve, SetAttr, Tree,
+    PathError, ReadTreeOptions, Resolve, SetAttr, Tree,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -112,6 +112,7 @@ io_transform! {
 /// differ from the spelling in `path` (one scan of the directory). Symlinks, device nodes, FIFOs and sockets are kept, and a file
 /// listed again under the same node id becomes a hard link. Attributes are
 /// what the volume reports. `path` resolves lexically.
+/// Use [`read_tree_with_options`] to omit unsupported symlinks from a directory walk.
 ///
 /// Each file keeps its node pinned until the last clone of its content is
 /// dropped, and the tree holds a clone of the volume, so
@@ -128,7 +129,18 @@ io_transform! {
 /// and depth above 1024 returns [`ErrorKind::LimitExceeded`]. Lazy file
 /// content failures occur later when the returned content is read.
 pub async fn read_tree<F: FileSystem + Send + 'static>(vol: &Volume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
-    read_tree_of(vol, path.as_ref()).await
+    read_tree_with_options(vol, path, ReadTreeOptions::new()).await
+}
+
+/// Reads a volume tree with the supplied policy for unsupported symlinks.
+///
+/// # Errors
+///
+/// Returns the errors documented by [`read_tree`], except for entries the policy omits.
+pub async fn read_tree_with_options<F: FileSystem + Send + 'static>(
+    vol: &Volume<F>, path: impl AsRef<[u8]>, options: ReadTreeOptions,
+) -> Result<Tree, PathError> {
+    read_tree_of(vol, path.as_ref(), options).await
 }
 }
 }
@@ -144,6 +156,7 @@ async_only! {
 /// differ from the spelling in `path` (one scan of the directory). Symlinks, device nodes, FIFOs and sockets are kept, and a file
 /// listed again under the same node id becomes a hard link. Attributes are
 /// what the volume reports. `path` resolves lexically.
+/// Use [`read_tree_with_options`] to omit unsupported symlinks from a directory walk.
 ///
 /// Each file keeps its node pinned until the last clone of its content is
 /// dropped, and the tree holds a clone of the volume, so
@@ -163,13 +176,24 @@ async_only! {
 /// and depth above 1024 returns [`ErrorKind::LimitExceeded`]. Lazy file
 /// content failures occur later when the returned content is read.
 pub async fn read_tree<F: crate::async_::SendFileSystem + 'static>(vol: &crate::async_::SendVolume<F>, path: impl AsRef<[u8]>) -> Result<Tree, PathError> {
-    read_tree_of(vol, path.as_ref()).await
+    read_tree_with_options(vol, path, ReadTreeOptions::new()).await
+}
+
+/// Reads a volume tree with the supplied policy for unsupported symlinks.
+///
+/// # Errors
+///
+/// Returns the errors documented by [`read_tree`], except for entries the policy omits.
+pub async fn read_tree_with_options<F: crate::async_::SendFileSystem + 'static>(
+    vol: &crate::async_::SendVolume<F>, path: impl AsRef<[u8]>, options: ReadTreeOptions,
+) -> Result<Tree, PathError> {
+    read_tree_of(vol, path.as_ref(), options).await
 }
 }
 
 io_transform! {
 
-async fn read_tree_of<F: Lazy>(vol: &Volume<F>, path: &[u8]) -> Result<Tree, PathError> {
+async fn read_tree_of<F: Lazy>(vol: &Volume<F>, path: &[u8], options: ReadTreeOptions) -> Result<Tree, PathError> {
     watched!(vol, {
         let mut fs = vol.enter().await?;
         let top = vol.hold(fs.resolve(path, Resolve::Lexical).await.map_err(|err| PathError::from(err).with_path(path))?);
@@ -199,7 +223,7 @@ async fn read_tree_of<F: Lazy>(vol: &Volume<F>, path: &[u8]) -> Result<Tree, Pat
         }
         let mut stack: Vec<(NodeId, DirCursor, Vec<u8>)> = alloc::vec![(top.node(), DirCursor::START, Vec::new())];
         let mut seen: Vec<(NodeId, Vec<u8>)> = Vec::new();
-        let result = walk(&mut *fs, vol, &mut tree, &mut stack, &mut seen).await;
+        let result = walk(&mut *fs, vol, &mut tree, &mut stack, &mut seen, options).await;
         top.forget(&mut *fs);
         result.map(|()| tree)
     })
@@ -244,6 +268,7 @@ async fn walk<F: Lazy>(
     tree: &mut Tree,
     stack: &mut Vec<(NodeId, DirCursor, Vec<u8>)>,
     seen: &mut Vec<(NodeId, Vec<u8>)>,
+    options: ReadTreeOptions,
 ) -> Result<(), PathError> {
     while let Some((dir, cursor, prefix)) = stack.last_mut() {
         let dir = *dir;
@@ -296,7 +321,12 @@ async fn walk<F: Lazy>(
             }
             seen.push((child.node(), path.clone()));
         }
-        let node = node_of(fs, vol, child, &meta).await.map_err(|err| err.with_path(&path))?;
+        let node = match node_of(fs, vol, child, &meta).await {
+            Ok(node) => node,
+            Err(err) if options.skip_unsupported_symlinks
+                && meta.file_type() == FileType::Symlink && err.kind() == ErrorKind::Unsupported => continue,
+            Err(err) => return Err(err.with_path(&path)),
+        };
         tree.insert(&path, node)?;
     }
     Ok(())

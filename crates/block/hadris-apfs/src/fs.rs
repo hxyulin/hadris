@@ -592,29 +592,18 @@ impl<D: BlockDevice> ApfsFs<D> {
     /// Reads a symlink's target attribute. A duplicated target damages the
     /// node.
     async fn read_symlink(&mut self, inode: u64) -> FsResult<Option<(u16, Vec<u8>)>, D::Error> {
-        let mut target: Option<(u16, Vec<u8>)> = None;
-        let mut duplicate = false;
-        for entry in self
-            .container
-            .filesystem_records(&self.volume, inode, filesystem::FS_TYPE_XATTR)
-            .await?
-        {
-            let Ok(xattr) = XattrRecord::parse(&entry.key, &entry.value) else {
-                continue;
-            };
-            if xattr.name != filesystem::SYMLINK_XATTR_NAME {
-                continue;
+        let mut target = None;
+        for entry in self.container.filesystem_records(&self.volume, inode, filesystem::FS_TYPE_XATTR).await? {
+            if XattrRecord::parse_key(&entry.key).is_ok_and(|(_, name)| name == filesystem::SYMLINK_XATTR_NAME)
+                && target.replace(entry).is_some()
+            {
+                return Err(self.nodes.damage(inode, "duplicate APFS symlink target"));
             }
-            if target.is_some() {
-                duplicate = true;
-                continue;
-            }
-            target = Some((xattr.flags, xattr.data.to_vec()));
         }
-        if duplicate {
-            return Err(self.nodes.damage(inode, "duplicate APFS symlink target"));
-        }
-        Ok(target)
+        target.map(|entry| {
+            let target = XattrRecord::parse(&entry.key, &entry.value)?;
+            Ok((target.flags, target.data.to_vec()))
+        }).transpose()
     }
 
     /// Reads a symlink's target attribute on first use and holds it for the
