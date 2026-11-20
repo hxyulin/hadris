@@ -106,6 +106,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-storage, hadris-cpio:** `StreamDeviceError` and `FinishError`
+  include the failure context in their display messages, including the
+  trailer path for cpio trailer writes.
+
 - **hadris-ntfs:** Read-only mounts can recover MFT record zero from
   `$MFTMirr`. `VolumeInfo` reports mirror use, the dirty flag, and
   hibernation status.

@@ -123,6 +123,10 @@ pub fn assert_cause(failure: &FinishError<Output>, cause: Fault, path: Option<&[
         .downcast_ref::<PathError>()
         .unwrap();
     assert!(core::ptr::eq(source, failure.error()));
-    assert_eq!(failure.to_string(), "finishing the cpio archive failed");
+    let expected = match cause {
+        Fault::Write => "finishing the cpio archive failed: writing the archive failed: TRAILER!!!",
+        Fault::Flush => "finishing the cpio archive failed: flushing the archive failed",
+    };
+    assert_eq!(failure.to_string(), expected);
     assert!(format!("{failure:?}").contains("FinishError"));
 }

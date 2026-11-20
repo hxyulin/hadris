@@ -7,6 +7,9 @@ use hadris_io::Error;
 /// The stream may have changed position before the seek failed. Recover it
 /// with [`into_stream`](Self::into_stream), or inspect both values with
 /// [`into_parts`](Self::into_parts).
+/// `Display` includes the seek failure's context. The underlying device error
+/// is available in the [source chain](core::error::Error::source).
+///
 /// Converting into [`Error`] or, with `std`, `std::io::Error` drops the
 /// stream and preserves the failure's context and device error.
 pub struct StreamDeviceError<T, E> {
@@ -56,7 +59,7 @@ impl<T, E: fmt::Debug> fmt::Debug for StreamDeviceError<T, E> {
 
 impl<T, E> fmt::Display for StreamDeviceError<T, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("stream-device construction failed")
+        write!(f, "stream-device construction failed: {}", self.error)
     }
 }
 
