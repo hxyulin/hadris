@@ -26,7 +26,7 @@ pass_filenames = false
 [[repos.hooks]]
 id = "cargo-clippy"
 name = "cargo clippy"
-entry = "cargo clippy --workspace -- -D warnings -A clippy::collapsible_if"
+entry = "cargo clippy --locked --workspace -- -D warnings"
 language = "system"
 types = ["rust"]
 pass_filenames = false
@@ -43,7 +43,7 @@ pass_filenames = false
 [[repos.hooks]]
 id = "cargo-clippy-conformance"
 name = "cargo clippy (conformance suite)"
-entry = "cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings -A clippy::collapsible_if"
+entry = "cargo clippy --locked --manifest-path tests/Cargo.toml --all-targets -- -D warnings"
 language = "system"
 types = ["rust"]
 pass_filenames = false

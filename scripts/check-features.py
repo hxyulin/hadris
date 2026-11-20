@@ -32,20 +32,7 @@ def main():
                 tier["features"],
             ]
             if args.clippy:
-                command += [
-                    "--lib",
-                    "--",
-                    "-D",
-                    "warnings",
-                    "-A",
-                    "clippy::manual_is_multiple_of",
-                    "-A",
-                    "clippy::collapsible_if",
-                    "-A",
-                    "clippy::unnecessary_sort_by",
-                    "-A",
-                    "clippy::byte_char_slices",
-                ]
+                command += ["--lib", "--", "-D", "warnings"]
             result = subprocess.run(command, cwd=root)
             print("::endgroup::", flush=True)
             if result.returncode:
