@@ -155,6 +155,14 @@ impl Mbr {
         if let Some(slot) = past {
             return Err(TableError::invalid(Detail::OutOfBounds).at(slot));
         }
+        let past = self.logical.iter().position(|l| {
+            l.start
+                .checked_add(l.len)
+                .is_none_or(|end| end > block_count)
+        });
+        if let Some(k) = past {
+            return Err(TableError::invalid(Detail::OutOfBounds).at(FIRST_LOGICAL + k));
+        }
         self.block_count = block_count;
         Ok(())
     }
@@ -592,6 +600,28 @@ mod tests {
         assert_eq!((err.detail(), err.index()), (Detail::OutOfBounds, Some(0)));
         assert_eq!(mbr.block_count(), 200_000);
         mbr.set_block_count(150_100).unwrap();
+    }
+
+    #[test]
+    fn block_count_rejects_out_of_bounds_logical_partition() {
+        let mut record = RawMbr::default();
+        record.entries[0] = RawMbrEntry::new(MbrType::EXTENDED_LBA.code(), 100, 100);
+        let logical = alloc::vec![Logical {
+            ebr: 100,
+            start: 101,
+            len: 300,
+            kind: MbrType::LINUX.code(),
+            boot: 0,
+        }];
+        let mut mbr = Mbr::from_disk(&record, logical, 500, BlockSize::new(512).unwrap());
+        let err = mbr.set_block_count(300).unwrap_err();
+        assert_eq!(
+            (err.detail(), err.index()),
+            (Detail::OutOfBounds, Some(FIRST_LOGICAL))
+        );
+        assert_eq!(mbr.block_count(), 500);
+        mbr.set_block_count(401).unwrap();
+        assert_eq!(mbr.block_count(), 401);
     }
 
     #[test]

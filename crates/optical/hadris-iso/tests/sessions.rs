@@ -319,7 +319,22 @@ fn appended_sessions_report_ignored_hybrid_options() {
 #[test]
 fn rewritten_sessions_grow_an_mbr_only_partition() {
     let tree = sample(false, false);
-    let bytes = image(&tree, &IsoOptions::default().with_hybrid(Hybrid::mbr())).into_inner();
+    let bootstrap = [0x90u8; 446];
+    let bytes = image(
+        &tree,
+        &IsoOptions::default().with_hybrid(Hybrid::mbr().with_bootstrap(&bootstrap)),
+    )
+    .into_inner();
+    let before_len = bytes.len() as u64;
+    let before_disk = hadris_part::sync::read(&mut MemDevice::new(
+        bytes.clone(),
+        hadris_storage::BlockSize::new(512).unwrap(),
+    ))
+    .unwrap();
+    let before_parts: Vec<_> = before_disk
+        .partitions()
+        .map(|p| (p.slot(), p.start(), p.kind(), p.flags()))
+        .collect();
     let mut session = Session::open(bytes).unwrap();
     session
         .tree_mut()
@@ -327,6 +342,7 @@ fn rewritten_sessions_grow_an_mbr_only_partition() {
         .unwrap();
     let opts = session.options();
     let report = session.write(&opts, SessionMode::Rewrite).unwrap();
+    assert!(report.size() > before_len);
     let bytes = session.into_inner();
     let disk = hadris_part::sync::read(&mut MemDevice::new(
         bytes.clone(),
@@ -334,6 +350,12 @@ fn rewritten_sessions_grow_an_mbr_only_partition() {
     ))
     .unwrap();
     assert!(matches!(disk.table(), hadris_part::PartitionTable::Mbr(_)));
+    assert_eq!(disk.bootstrap(), &bootstrap);
+    let after_parts: Vec<_> = disk
+        .partitions()
+        .map(|p| (p.slot(), p.start(), p.kind(), p.flags()))
+        .collect();
+    assert_eq!(after_parts, before_parts);
     let ends: Vec<u64> = disk.partitions().map(|p| p.end()).collect();
     assert_eq!(ends, [report.size() / 512]);
     assert_eq!(bytes.len() as u64, report.size());

@@ -99,12 +99,18 @@ Each published package owns its version and may be released independently.
   directory uncreated; command-specific error context stays at the command
   boundary.
 
+- **hadris-part:** `Mbr::set_block_count` updates the disk size an MBR checks
+  partitions against, allowing partitions to grow onto a larger disk.
 - **hadris-fat:** The README states that the drivers do not enforce the
   read-only attribute, as on Linux vfat.
 - **hadris-fs:** `Volume::read` documents that a crafted image can make it
   allocate a file's whole declared length.
 
 ### Fixed
+
+- **hadris-iso:** `Session::write` with `SessionMode::Rewrite` grows MBR-only
+  hybrid partitions when the image grows, preserving existing disk capacity
+  when an extended partition ends past the new image.
 
 - **hadris-storage, hadris-cpio:** `StreamDeviceError` and `FinishError`
   include the failure context in their display messages, including the
