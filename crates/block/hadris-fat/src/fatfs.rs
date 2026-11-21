@@ -281,6 +281,21 @@ struct AppendIndex {
 impl AppendIndex {
     const LIMIT: usize = 2048;
 
+    fn record_scanned_name(append: &mut Option<Self>, name: [u8; 11]) {
+        let Some(index) = append else {
+            return;
+        };
+        if index.names.len() == index.limit
+            || name[0] == 0x05
+            || !name.is_ascii()
+            || name.iter().any(u8::is_ascii_lowercase)
+        {
+            *append = None;
+            return;
+        }
+        index.insert(name);
+    }
+
     fn insert(&mut self, name: [u8; 11]) {
         if let Err(at) = self.names.binary_search(&name) {
             if self.names.len() == self.names.capacity() {
@@ -1248,7 +1263,14 @@ impl<D: BlockDevice> FatFs<D> {
             self.invalidate_slot(target);
         }
         let rename = self.rename.as_ref().unwrap();
-        let phase = dirs::recover_rename(&mut self.dev, &mut self.block, rename.phase, rename.offset, &rename.entry.encode()).await?;
+        let phase = dirs::recover_rename(
+            &mut self.dev,
+            &mut self.block,
+            rename.phase,
+            rename.offset,
+            &rename.entry.encode(),
+        )
+        .await?;
         self.rename.as_mut().unwrap().phase = phase;
         if phase == RenamePhase::Committed {
             self.rename_end().await?;
@@ -1283,7 +1305,7 @@ impl<D: BlockDevice> FatFs<D> {
                 let saved = self.rename.as_ref().unwrap().saved.as_ref().unwrap();
                 let slot = saved.first + index;
                 let raw = saved.raw[index as usize];
-                let at = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await?.ok_or(ErrorKind::Corrupt)?;
+                let at = self.required_slot_offset(&mut walk, slot).await?;
                 self.put_bytes(at, &raw).await?;
             }
             if let Some(end) = self.rename.as_ref().unwrap().end {
@@ -1672,7 +1694,9 @@ impl<D: BlockDevice> FatFs<D> {
                 index.entries.push(IndexedName {
                     located: Located { first: if named { found.long_start } else { found.slot }, slot: found.slot, offset: found.offset, entry: found.entry, exact: false },
                     long: units.map(Into::into),
-                    long_hash: units.map(|units| crate::names::name_hash(units.iter().copied().map(raw::fold_unicode))),
+                    long_hash: units.map(|units| {
+                        crate::names::name_hash(units.iter().copied().map(raw::fold_unicode))
+                    }),
                     short_hash,
                 });
                 index.walk = walk;
@@ -1791,16 +1815,7 @@ impl<D: BlockDevice> FatFs<D> {
                     }
                     Slot::Short(entry) => {
                         if !entry.is_label() {
-                            let name = entry.name();
-                            if name[0] == 0x05 || !name.is_ascii() || name.iter().any(u8::is_ascii_lowercase) {
-                                append = None;
-                            } else if let Some(index) = &mut append {
-                                if index.names.len() == self.append_limit {
-                                    append = None;
-                                } else {
-                                    index.insert(name);
-                                }
-                            }
+                            AppendIndex::record_scanned_name(&mut append, entry.name());
                         }
                         let units = long
                             .finish(entry.lfn_checksum())
@@ -2095,7 +2110,7 @@ impl<D: BlockDevice> FatFs<D> {
         let mut end = None;
         let mut offset = 0;
         for slot in plan.start..=short {
-            offset = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await?.ok_or(ErrorKind::Corrupt)?;
+            offset = self.required_slot_offset(&mut walk, slot).await?;
             if end.is_none() && matches!(rawio::read_slot(&mut self.dev, &mut self.block, offset).await?, Slot::End) {
                 end = Some(offset);
             }
@@ -2220,6 +2235,12 @@ impl<D: BlockDevice> FatFs<D> {
         self.recover().await
     }
 
+    async fn required_slot_offset(&mut self, walk: &mut DirWalk, slot: u32) -> FsResult<u64, D::Error> {
+        rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, walk, slot)
+            .await?
+            .ok_or_else(|| ErrorKind::Corrupt.into())
+    }
+
     /// Reads slots `saved.first..=last` of `dir`, at most one long name and
     /// its short entry, into `saved`.
     async fn save_run(&mut self, dir: DirStart, last: u32, saved: &mut SavedRun) -> FsResult<(), D::Error> {
@@ -2229,7 +2250,7 @@ impl<D: BlockDevice> FatFs<D> {
         }
         let mut walk = DirWalk::new(dir);
         for (slot, raw) in (saved.first..=last).zip(saved.raw.iter_mut()) {
-            let at = rawio::slot_offset(&mut self.dev, &mut self.block, &self.fat, &mut walk, slot).await?.ok_or(ErrorKind::Corrupt)?;
+            let at = self.required_slot_offset(&mut walk, slot).await?;
             read_bytes(&mut self.dev, &mut self.block, at, raw).await?;
         }
         saved.len = len;

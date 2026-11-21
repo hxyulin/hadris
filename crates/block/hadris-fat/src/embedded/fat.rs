@@ -308,7 +308,10 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         match name {
             "." => return Ok(parent),
             ".." if parent.is_root() => return Ok(Dir::ROOT),
-            ".." => return Ok(dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, parent.first()).await?.map_or(Dir::ROOT, Dir::new)),
+            ".." => {
+                let cluster = dirs::dot_dot(&mut self.dev, &mut self.block, &self.fat, parent.first()).await?;
+                return Ok(cluster.map_or(Dir::ROOT, Dir::new));
+            }
             _ => {}
         }
         check_name(name)?;
@@ -733,10 +736,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         if !found.entry.is_dir() {
             return Err(ErrorKind::NotADirectory.into());
         }
-        let first = self.fat.check_cluster(found.entry.first_cluster(self.kind()))?;
-        if self.find(DirStart::Chain(first), Query::Any).await?.is_some() {
-            return Err(ErrorKind::DirectoryNotEmpty.into());
-        }
+        self.ensure_empty_dir(&found.entry).await?;
         self.remove_located(start, &found).await
     }
 
@@ -841,12 +841,7 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                 match (is_dir, target.entry.is_dir()) {
                     (true, false) => return Err(ErrorKind::NotADirectory.into()),
                     (false, true) => return Err(ErrorKind::IsADirectory.into()),
-                    (true, true) => {
-                        let first = self.fat.check_cluster(target.entry.first_cluster(kind))?;
-                        if self.find(DirStart::Chain(first), Query::Any).await?.is_some() {
-                            return Err(ErrorKind::DirectoryNotEmpty.into());
-                        }
-                    }
+                    (true, true) => self.ensure_empty_dir(&target.entry).await?,
                     (false, false) => {}
                 }
                 replaced = Target {
@@ -1696,7 +1691,9 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
                         return Err(ErrorKind::NoSpace.into());
                     }
                     let per_cluster = self.fat.geometry().cluster_size() / ENTRY_SIZE as u32;
-                    (start, (needed - run_len + per_cluster - 1) >> (self.fat.geometry().cluster_shift() - ENTRY_SIZE.trailing_zeros()), walk.pos().cluster())
+                    let slots_per_cluster_shift = self.fat.geometry().cluster_shift() - ENTRY_SIZE.trailing_zeros();
+                    let grow = (needed - run_len + per_cluster - 1) >> slots_per_cluster_shift;
+                    (start, grow, walk.pos().cluster())
                 }
             };
             let short = if new.lossless && taken & 1 == 0 {
@@ -1777,6 +1774,14 @@ impl<'mount, D: BlockDevice, const FILES: usize> Fat<'mount, D, FILES> {
         self.note(result)?;
         self.run = None;
         Ok(offset)
+    }
+
+    async fn ensure_empty_dir(&mut self, entry: &ShortEntry) -> FsResult<(), D::Error> {
+        let first = self.fat.check_cluster(entry.first_cluster(self.kind()))?;
+        if self.find(DirStart::Chain(first), Query::Any).await?.is_some() {
+            return Err(ErrorKind::DirectoryNotEmpty.into());
+        }
+        Ok(())
     }
 
     /// Removes an entry and frees its clusters: the short entry first,
