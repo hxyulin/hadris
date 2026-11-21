@@ -73,8 +73,25 @@ impl BitmapWindow {
             self.start = byte & !63;
             self.len = bitmap_bytes(dev, block, vol, self.start, &mut self.bytes).await?;
         }
-        let value = self.bytes.get((byte - self.start) as usize).filter(|_| byte - self.start < self.len as u64).ok_or(ErrorKind::Corrupt)?;
+        let offset = byte - self.start;
+        let value = self.bytes
+            .get(offset as usize)
+            .filter(|_| offset < self.len as u64)
+            .ok_or(ErrorKind::Corrupt)?;
         Ok(value & (1 << (index % 8)) != 0)
+    }
+
+    async fn is_allocatable<D: BlockDevice>(
+        &mut self,
+        dev: &mut D,
+        block: &mut BlockBuf,
+        vol: &mut ExFat,
+        cluster: u32,
+    ) -> FsResult<bool, D::Error> {
+        if self.used(dev, block, vol, cluster).await? {
+            return Ok(false);
+        }
+        Ok(get(dev, block, &vol.geo, cluster).await? != raw::FAT_BAD)
     }
 }
 
@@ -598,6 +615,21 @@ async fn bitmap_offset<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &
     Ok(cluster_at(&vol.geo, hint.cluster())? + (pos & (vol.geo.cluster_size() - 1)))
 }
 
+async fn mirror_bitmap_offset<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    vol: &ExFat,
+    pos: u64,
+) -> FsResult<Option<u64>, D::Error> {
+    let Some(mirror) = vol.mirror else {
+        return Ok(None);
+    };
+    let index = (pos >> vol.geo.cluster_shift()) as u32;
+    let position = locate(dev, block, &vol.geo, mirror, ChainPos::NONE, index).await?;
+    let within = pos & (vol.geo.cluster_size() - 1);
+    Ok(Some(cluster_at(&vol.geo, position.cluster())? + within))
+}
+
 /// Reads bytes of the active bitmap from byte `pos`, at most to the end of
 /// a cluster, and returns how many it read.
 ///
@@ -687,7 +719,8 @@ pub async fn set_bit<D: BlockDevice>(
 ) -> FsResult<(), D::Error> {
     let used = state == ClusterState::Used;
     let index = check_cluster(&vol.geo, cluster)? - raw::FIRST_CLUSTER;
-    let at = bitmap_offset(dev, block, vol, index as u64 / 8).await?;
+    let pos = u64::from(index) / 8;
+    let at = bitmap_offset(dev, block, vol, pos).await?;
     let mut byte = [0u8; 1];
     read_bytes(dev, block, at, &mut byte).await?;
     let bit = 1 << (index % 8);
@@ -697,11 +730,8 @@ pub async fn set_bit<D: BlockDevice>(
     }
     barrier(dev, vol.durability()).await?;
     byte[0] ^= bit;
-    if let Some(mirror) = vol.mirror {
-        let cluster = locate(dev, block, &vol.geo, mirror, ChainPos::NONE, index >> (vol.geo.cluster_shift() + 3)).await?.cluster();
-        let within = (index as u64 / 8) & (vol.geo.cluster_size() - 1);
+    if let Some(other_at) = mirror_bitmap_offset(dev, block, vol, pos).await? {
         let mut other = [0u8; 1];
-        let other_at = cluster_at(&vol.geo, cluster)? + within;
         read_bytes(dev, block, other_at, &mut other).await?;
         other[0] = (other[0] & !bit) | (byte[0] & bit);
         begin_write(dev, block, vol).await?;
@@ -925,7 +955,7 @@ pub async fn allocate_run<D: BlockDevice>(
     let mut last = None;
     let mut bitmap = BitmapWindow::new();
     for step in 0..total {
-        if !bitmap.used(dev, block, vol, at(step)).await? && get(dev, block, &vol.geo, at(step)).await? != raw::FAT_BAD {
+        if bitmap.is_allocatable(dev, block, vol, at(step)).await? {
             found += 1;
             if found == count {
                 last = Some(step);
@@ -966,7 +996,7 @@ async fn link_free<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut 
             if cluster > high || !same_fat_block(&vol.geo, size, cluster, high) {
                 break;
             }
-            if !bitmap.used(dev, block, vol, cluster).await? && get(dev, block, &vol.geo, cluster).await? != raw::FAT_BAD {
+            if bitmap.is_allocatable(dev, block, vol, cluster).await? {
                 group.add(cluster);
             }
             top -= 1;
@@ -1036,7 +1066,11 @@ async fn mark_chain<D: BlockDevice>(
                 group.add(cluster);
             }
             match next {
-                Ok(Some(next)) if group.spans(next) && !group.has(next) && bit_place(dev, block, vol, next).await? == place => {
+                Ok(Some(next))
+                    if group.spans(next)
+                        && !group.has(next)
+                        && bit_place(dev, block, vol, next).await? == place =>
+                {
                     cluster = next;
                 }
                 other => break other,
@@ -1064,9 +1098,7 @@ async fn bit_place<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, vol: &mut 
     let byte = (check_cluster(&vol.geo, cluster)? - raw::FIRST_CLUSTER) as u64 / 8;
     let at = bitmap_offset(dev, block, vol, byte).await?;
     let mut place = [(at / size, at - byte), (0, 0)];
-    if let Some(mirror) = vol.mirror {
-        let other = locate(dev, block, &vol.geo, mirror, ChainPos::NONE, (byte >> vol.geo.cluster_shift()) as u32).await?.cluster();
-        let at = cluster_at(&vol.geo, other)? + (byte & (vol.geo.cluster_size() - 1));
+    if let Some(at) = mirror_bitmap_offset(dev, block, vol, byte).await? {
         place[1] = (at / size, at - byte);
     }
     Ok(place)
