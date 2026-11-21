@@ -86,11 +86,12 @@ let esp = hadris_part::sync::open(&mut disk, &table.partition(0).unwrap())?;
 `Mbr` and `Gpt` edits (`add`, `add_logical`, `remove`, `resize`, `set_*`)
 check that the partition stays in the usable area and overlaps no other one,
 and change nothing when they fail. `write` puts the table back, recomputing
-both GPT copies. `Gpt::relocate_backup(block_count)` moves the backup copy
-to the end of a grown disk and extends the usable area, as `sgdisk -e`
-does, and `Gpt::set_entry_count(n)` resizes both entry arrays, as `sgdisk
---resize-table` does, refusing to cover a partition. A `Hybrid` read from
-disk is edited through `gpt_mut()`, and `Hybrid::new(gpt, &hybrid.mirror())`
+both GPT copies. `Mbr::set_block_count(block_count)` updates the disk size an
+MBR checks partitions against after a disk grows. `Gpt::relocate_backup(block_count)`
+moves the backup copy to the end of a grown disk and extends the usable area,
+as `sgdisk -e` does, and `Gpt::set_entry_count(n)` resizes both entry arrays,
+as `sgdisk --resize-table` does, refusing to cover a partition. A `Hybrid` read
+from disk is edited through `gpt_mut()`, and `Hybrid::new(gpt, &hybrid.mirror())`
 rebuilds its MBR with the same mirrors.
 
 ```rust,no_run

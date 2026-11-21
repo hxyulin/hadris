@@ -314,6 +314,90 @@ fn appended_sessions_report_ignored_hybrid_options() {
     assert!(bytes[..512].iter().all(|&byte| byte == 0));
 }
 
+/// A rewrite grows the partition of an MBR-only hybrid image, as xorriso's
+/// isohybrid layout has, past the disk size the old table was read with.
+#[test]
+fn rewritten_sessions_grow_an_mbr_only_partition() {
+    let tree = sample(false, false);
+    let bootstrap = [0x90u8; 446];
+    let bytes = image(
+        &tree,
+        &IsoOptions::default().with_hybrid(Hybrid::mbr().with_bootstrap(&bootstrap)),
+    )
+    .into_inner();
+    let before_len = bytes.len() as u64;
+    let before_disk = hadris_part::sync::read(&mut MemDevice::new(
+        bytes.clone(),
+        hadris_storage::BlockSize::new(512).unwrap(),
+    ))
+    .unwrap();
+    let before_parts: Vec<_> = before_disk
+        .partitions()
+        .map(|p| (p.slot(), p.start(), p.kind(), p.flags()))
+        .collect();
+    let mut session = Session::open(bytes).unwrap();
+    session
+        .tree_mut()
+        .insert("added/new.txt", Node::file(Content::bytes("brand new")))
+        .unwrap();
+    let opts = session.options();
+    let report = session.write(&opts, SessionMode::Rewrite).unwrap();
+    assert!(report.size() > before_len);
+    let bytes = session.into_inner();
+    let disk = hadris_part::sync::read(&mut MemDevice::new(
+        bytes.clone(),
+        hadris_storage::BlockSize::new(512).unwrap(),
+    ))
+    .unwrap();
+    assert!(matches!(disk.table(), hadris_part::PartitionTable::Mbr(_)));
+    assert_eq!(disk.bootstrap(), &bootstrap);
+    let after_parts: Vec<_> = disk
+        .partitions()
+        .map(|p| (p.slot(), p.start(), p.kind(), p.flags()))
+        .collect();
+    assert_eq!(after_parts, before_parts);
+    let ends: Vec<u64> = disk.partitions().map(|p| p.end()).collect();
+    assert_eq!(ends, [report.size() / 512]);
+    assert_eq!(bytes.len() as u64, report.size());
+    let mut iso = IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new()).unwrap();
+    assert_eq!(iso.read_to_vec("/added/new.txt").unwrap(), b"brand new");
+}
+
+/// A rewrite keeps the disk size an MBR was read with when its extended
+/// partition ends past the new image.
+#[test]
+fn rewritten_sessions_keep_an_extended_partition_past_the_image() {
+    use hadris_part::{Disk, Mbr, MbrEntry, MbrType};
+
+    let block = hadris_storage::BlockSize::new(512).unwrap();
+    let mut bytes = image(&sample(false, false), &IsoOptions::default()).into_inner();
+    let blocks = bytes.len() as u64 / 512 + 4096;
+    bytes.resize(blocks as usize * 512, 0);
+    let mut mbr = Mbr::new(blocks, block).unwrap();
+    mbr.add(MbrEntry::new(MbrType::LINUX, 1, 31)).unwrap();
+    mbr.add(MbrEntry::new(MbrType::EXTENDED_LBA, 32, blocks - 32))
+        .unwrap();
+    mbr.add_logical(MbrEntry::new(MbrType::LINUX, 33, 64))
+        .unwrap();
+    let mut dev = MemDevice::new(bytes, block);
+    hadris_part::sync::write(&mut dev, &Disk::new(mbr)).unwrap();
+
+    let mut session = Session::open(MemDevice::new(dev.into_inner(), common::SECTOR)).unwrap();
+    session
+        .tree_mut()
+        .insert("added/new.txt", Node::file(Content::bytes("brand new")))
+        .unwrap();
+    let opts = session.options();
+    let report = session.write(&opts, SessionMode::Rewrite).unwrap();
+    assert!(report.size() / 512 < blocks);
+    let bytes = session.into_inner().into_inner();
+    let disk = hadris_part::sync::read(&mut MemDevice::new(bytes.clone(), block)).unwrap();
+    let spans: Vec<(u64, u64)> = disk.partitions().map(|p| (p.start(), p.end())).collect();
+    assert_eq!(spans, [(1, 32), (33, 97)]);
+    let mut iso = IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new()).unwrap();
+    assert_eq!(iso.read_to_vec("/added/new.txt").unwrap(), b"brand new");
+}
+
 #[cfg(feature = "async")]
 #[test]
 fn async_sessions_match_sync_ones() {
