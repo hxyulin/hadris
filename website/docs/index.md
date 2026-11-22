@@ -21,7 +21,7 @@ directly to the [use-case guides](./guides/index.md).
 
 :::note Stability
 
-These pages describe the `3.0.0-rc.3` API, the latest published release
+These pages describe the `3.0.0-rc.4` API, the latest published release
 candidate. The [installation recipe](./getting-started.md)
 selects the prerelease explicitly.
 V2 `2.5.0` is the published stable library version and remains in the version

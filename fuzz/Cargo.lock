@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-apfs"
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 dependencies = [
  "hadris-fs",
  "hadris-io",
@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cpio"
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 dependencies = [
  "hadris-cpio-raw",
  "hadris-fs",
@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat-raw"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bytemuck",
  "hadris-common",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-ntfs"
-version = "3.0.0-rc.3"
+version = "3.0.0-rc.4"
 dependencies = [
  "bytemuck",
  "hadris-fs",

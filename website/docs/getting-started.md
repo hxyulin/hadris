@@ -2,7 +2,7 @@
 title: Getting started
 ---
 
-# Getting started with 3.0.0-rc.3
+# Getting started with 3.0.0-rc.4
 
 Use `hadris` for a single dependency that reaches the format drivers, shared
 filesystem API, block devices and stream adapters. Disable defaults to choose
@@ -10,7 +10,7 @@ only the formats and I/O mode the application needs.
 
 ## Get the release candidate
 
-These pages target `3.0.0-rc.3`, the current release candidate. Select it
+These pages target `3.0.0-rc.4`, the current release candidate. Select it
 explicitly:
 
 ```toml
@@ -27,14 +27,14 @@ Git dependency pinned to a reviewed `rev`.
 Install the command-line tool with cargo-binstall:
 
 ```sh
-cargo binstall hadris-cli --version 3.0.0-rc.3
+cargo binstall hadris-cli --version 3.0.0-rc.4
 hadris --help
 ```
 
 Or compile it with Rust 1.88 or newer:
 
 ```sh
-cargo install hadris-cli --version 3.0.0-rc.3 --locked
+cargo install hadris-cli --version 3.0.0-rc.4 --locked
 hadris --help
 ```
 

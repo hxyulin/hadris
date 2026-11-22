@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [3.0.0-rc.4] - 2026-11-22
+
+The fourth release candidate of the 3.0 API. The 3.x packages move to
+`3.0.0-rc.4` except `hadris-common` and `hadris-macros`, which stay at
+`3.0.0-rc.2`. The FAT raw crate advances to `0.3.1`.
+
 ### Breaking
 
 - **hadris-io:** The `embedded-io` feature is renamed `embedded-io-07`, after
@@ -48,7 +54,7 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
-- **hadris-fat-raw:** The sync and async `io::barrier` primitives flush write
+- **hadris-fat-raw:** The new sync and async barrier helpers flush write
   dependencies according to the FAT or exFAT durability policy.
 
 - **hadris-fs:** Drivers can mark a `DirEntry`'s metadata as complete.
@@ -2720,7 +2726,8 @@ under Semantic Versioning.
 - **Build:** Disabled `thiserror` default features so the workspace builds as
   `no_std`. ([@aruiz](https://github.com/aruiz))
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.4...HEAD
+[3.0.0-rc.4]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.3...v3.0.0-rc.4
 [3.0.0-rc.3]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.2...v3.0.0-rc.3
 [3.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v3.0.0-rc.1...v3.0.0-rc.2
 [3.0.0-rc.1]: https://github.com/hxyulin/hadris/compare/v2.5.0...v3.0.0-rc.1

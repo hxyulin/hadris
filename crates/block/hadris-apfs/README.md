@@ -213,7 +213,7 @@ are `Send`.
 
 ## Documentation
 
-- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.3)
+- [Library API](https://docs.rs/hadris-apfs/3.0.0-rc.4)
 - [Unified CLI (`hadris apfs`)](../../tools/hadris-cli/README.md)
 
 ## License

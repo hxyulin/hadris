@@ -78,7 +78,7 @@ Versioning:
 - The previews `hadris-ntfs` and `hadris-apfs` and the internal
   `hadris-common` carry 3.x versions but are exempt from semver: a 3.y minor
   release may break them, so depend on them with `"~3.0"`.
-- The raw crates `hadris-fat-raw` (0.3.0), `hadris-iso-raw` and
+- The raw crates `hadris-fat-raw` (0.3.1), `hadris-iso-raw` and
   `hadris-cpio-raw` (0.2.0), and `hadris-udf-raw` (0.1.1), stay at 0.x and
   version separately. Every item is at the raw crate's root. They are never
   re-exported whole: `hadris-fat` re-exports only `FatKind`, `Geometry`,
@@ -144,7 +144,7 @@ New crates:
 | Crate | Role |
 |---|---|
 | `hadris-fs` | Shared vocabulary (`NodeId`, `Name`, `Metadata`, `DateTime`, `MountOptions`), the `FileSystem` trait, `Volume` with `File` and `ReadDir`, `Walk`, `Tree`, `Node`, `Content`, `Report`, `copy_tree`, `read_tree`, `Finding`, `CheckReport`, the `host` module, and re-exports of the `hadris-io` error items. |
-| `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.3.0. |
+| `hadris-fat-raw` | FAT12/16/32 and exFAT on-disk layouts, I/O-free codecs, device primitives (`io`, `exfat::io`) and the allocation-free checkers. Version 0.3.1. |
 | `hadris-iso-raw`, `hadris-udf-raw`, `hadris-cpio-raw` | ISO 9660, UDF and cpio on-disk layouts and I/O-free codecs, at each crate's root. ISO and cpio are at 0.2.0; UDF is at 0.1.0. |
 | `hadris-cli` | The single `hadris` binary. Install it from crates.io as shown in [Command-line tools](#command-line-tools). |
 
@@ -1115,7 +1115,7 @@ The five CLI packages are replaced by one binary, `hadris`, in the
 
 ```bash
 cargo uninstall hadris-fat-cli hadris-iso-cli hadris-udf-cli hadris-cpio-cli hadris-cd-cli
-cargo install hadris-cli --version 3.0.0-rc.3 --locked
+cargo install hadris-cli --version 3.0.0-rc.4 --locked
 ```
 
 The 2.x binaries (`hadris-fat`, `fatutil`, `hadris-iso`, `hadris-iso-cli`,
@@ -1674,7 +1674,7 @@ Writing:
     `close` not flushing the device.
 13. Replace CLI invocations with `hadris <format> <command>` (see
     [Command-line tools](#command-line-tools)) and install
-    `cargo install hadris-cli --version 3.0.0-rc.3 --locked`.
+    `cargo install hadris-cli --version 3.0.0-rc.4 --locked`.
 
 ## Additions after the initial V3 migration
 

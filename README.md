@@ -22,7 +22,7 @@ supports hosted tools, bootloaders, kernels and embedded firmware, with `std`,
 Use one format crate, or the umbrella crate to detect and open multiple formats
 through a shared filesystem API.
 
-**Release candidate:** V3 [3.0.0-rc.3](CHANGELOG.md#300-rc3---2026-11-04)
+**Release candidate:** V3 [3.0.0-rc.4](CHANGELOG.md#300-rc4---2026-11-22)
 is the current release candidate, which the recipes below use. **Stable:** V2 [2.5.0](https://github.com/hxyulin/hadris/tree/v2.5.0),
 with maintenance on [`v2`](https://github.com/hxyulin/hadris/tree/v2).
 The [migration guide](docs/hadris-3.0.0-migration.md) covers the API and CLI changes.
@@ -43,14 +43,14 @@ Install the CLI with
 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
 
 ```sh
-cargo binstall hadris-cli --version 3.0.0-rc.3
+cargo binstall hadris-cli --version 3.0.0-rc.4
 hadris --help
 ```
 
 Or compile it using Rust 1.88 or newer:
 
 ```sh
-cargo install hadris-cli --version 3.0.0-rc.3 --locked
+cargo install hadris-cli --version 3.0.0-rc.4 --locked
 hadris --help
 ```
 
