@@ -9,7 +9,8 @@ use hadris_fs::{
     MountOptions, Node, NodeId, PathError, Report, SetAttr, Tree, TreeEntry, Warning, WarningKind,
 };
 use hadris_io::ErrorType;
-use hadris_part::{Disk, Gpt, GptEntry, Hybrid, HybridMbr, PartitionKind, PartitionTable};
+use hadris_part::raw::{RawMbr, RawMbrEntry};
+use hadris_part::{Disk, Gpt, GptEntry, Hybrid, HybridMbr, MbrType, PartitionKind, PartitionTable};
 use hadris_storage::{BlockIndex, BlockSize};
 
 use super::FileSystem;
@@ -458,7 +459,7 @@ impl<D: BlockDevice> Session<D> {
             return Err(Detail::HybridBoot.invalid::<Infallible>().into());
         }
         let old = self.volume_blocks;
-        let tables = self.partition_tables(old).await?;
+        let tables = self.partition_tables(old, false).await?;
         let floor = tables.as_ref().map_or(old, |tables| old.max(tables.floor).max(tables.backup_end.div_ceil(4)));
         if start_lba < floor {
             return Err(Detail::Session.invalid::<Infallible>().into());
@@ -578,29 +579,14 @@ impl<D: BlockDevice> Session<D> {
         check_block_size(&self.dev)?;
         let mut contents = plan::measure(&self.tree, true)?;
         let old = self.volume_blocks;
-        let existing = self.partition_tables(old).await?;
+        let keep_tables = mode == SessionMode::Rewrite && opts.hybrid().is_none();
+        let existing = self.partition_tables(old, keep_tables).await?;
         let has_tables = existing.is_some();
         let mut floor = existing.as_ref().map_or(old, |tables| tables.floor.max(old));
         if mode == SessionMode::Append {
             floor = floor.max(existing.as_ref().map_or(0, |tables| tables.backup_end.div_ceil(4)));
         }
-        let tables = match (mode, opts.hybrid()) {
-            (SessionMode::Rewrite, None) => existing,
-            _ => None,
-        };
-        if let Some(tables) = &tables
-            && let Some(extended) = tables.extended()
-            && extended.end() > tables.disk.block_count()
-        {
-            let entry = 446 + extended.slot() as u64 * 16;
-            return Err(Error::<Infallible>::new(
-                ErrorKind::InvalidInput,
-                "extended MBR partition ends past the device",
-            )
-                .with_detail(Detail::HybridBoot.code())
-                .with_location(Location::Byte(entry))
-                .into());
-        }
+        let tables = if keep_tables { existing } else { None };
         let keep_catalog = match opts.el_torito() {
             Some(_) => None,
             None => self.catalog,
@@ -897,8 +883,25 @@ impl<D: BlockDevice> Session<D> {
     }
 
     /// The partition table of the image, when it has one.
-    async fn partition_tables(&mut self, old: u64) -> Result<Option<Tables>, Error<D::Error>> {
+    async fn partition_tables(&mut self, old: u64, keep_tables: bool) -> Result<Option<Tables>, Error<D::Error>> {
         let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
+        if keep_tables {
+            let mut bytes = [0; 512];
+            super::image::read_bytes(&mut self.dev, len, 0, &mut bytes).await?;
+            let mbr: RawMbr = bytemuck::pod_read_unaligned(&bytes);
+            if mbr.has_signature()
+                && !mbr.entries.iter().any(|entry| MbrType::new(entry.kind).is_protective())
+                && let Some(slot) = mbr.entries.iter().position(|entry| {
+                    MbrType::new(entry.kind).is_extended()
+                        && u64::from(entry.start_lba()) + u64::from(entry.sector_count()) > len / 512
+                })
+            {
+                let offset = core::mem::offset_of!(RawMbr, entries) + slot * size_of::<RawMbrEntry>();
+                return Err(Error::new(ErrorKind::InvalidInput, "extended MBR partition ends past the device")
+                    .with_detail(Detail::HybridBoot.code())
+                    .with_location(Location::Byte(offset as u64)));
+            }
+        }
         let mut sectors = Sectors { dev: &mut self.dev, len };
         let Ok(disk) = super::part::read(&mut sectors).await else {
             return Ok(None);

@@ -484,19 +484,21 @@ fn rewrite_skips_adjacent_extended_partitions() {
 
 #[test]
 fn rewrite_identifies_a_truncated_extended_partition_before_writing() {
-    let (mut bytes, _, end) = iso_with_adjacent_extended_partition(false);
-    bytes.truncate((end as usize - 4) * 512);
-    let mut session = Session::open(bytes.clone()).unwrap();
-    let error = session
-        .write(&session.options(), SessionMode::Rewrite)
-        .unwrap_err();
-    assert_eq!(error.detail(), Some(hadris_iso::Detail::HybridBoot.code()));
-    assert_eq!(error.location(), Some(hadris_fs::Location::Byte(446 + 16)));
-    assert_eq!(
-        error.message(),
-        "extended MBR partition ends past the device"
-    );
-    assert_eq!(session.into_inner(), bytes);
+    let (original, start, end) = iso_with_adjacent_extended_partition(false);
+    for blocks in [end - 4, start] {
+        let bytes = original[..blocks as usize * 512].to_vec();
+        let mut session = Session::open(bytes.clone()).unwrap();
+        let error = session
+            .write(&session.options(), SessionMode::Rewrite)
+            .unwrap_err();
+        assert_eq!(error.detail(), Some(hadris_iso::Detail::HybridBoot.code()));
+        assert_eq!(error.location(), Some(hadris_fs::Location::Byte(446 + 16)));
+        assert_eq!(
+            error.message(),
+            "extended MBR partition ends past the device"
+        );
+        assert_eq!(session.into_inner(), bytes);
+    }
 }
 
 #[test]
