@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Fixed
+
+- **hadris-iso:** Session rewrites update the isohybrid or GRUB2 MBR boot
+  address when the default BIOS boot image moves. An unrecognized bootstrap
+  prevents the rewrite before any data is written. Rewrites place new data
+  after appended extended MBR partitions and identify truncated containers.
+
 ## [3.0.0-rc.4] - 2026-11-22
 
 The fourth release candidate of the 3.0 API. The 3.x packages move to
