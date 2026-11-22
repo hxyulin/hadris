@@ -363,6 +363,166 @@ fn rewritten_sessions_grow_an_mbr_only_partition() {
     assert_eq!(iso.read_to_vec("/added/new.txt").unwrap(), b"brand new");
 }
 
+#[test]
+fn rewritten_hybrid_bootstrap_follows_the_default_bios_image() {
+    let code = [0x90; 432];
+    let boot_address = |bytes: &[u8]| u64::from_le_bytes(bytes[432..440].try_into().unwrap());
+    for (hybrid, bias) in [
+        (Hybrid::mbr().with_bootstrap(&code), 0),
+        (Hybrid::mbr().with_grub2_bootstrap(&code), 4),
+        (Hybrid::gpt_hybrid_mbr().with_grub2_bootstrap(&code), 4),
+    ] {
+        let initial = boot_options(1).with_hybrid(hybrid);
+        for replace_catalog in [false, true] {
+            let bytes = image(&catalog_tree(), &initial).into_inner();
+            let old = boot_address(&bytes);
+            let mut session = Session::open(bytes).unwrap();
+            let replacement = vec![0x5A; 4096];
+            session
+                .tree_mut()
+                .replace("BOOT.IMG", Node::file(Content::bytes(replacement.clone())))
+                .unwrap();
+            let mut opts = session.options();
+            if replace_catalog {
+                opts = opts.with_el_torito(ElTorito::new().with_entry(BootEntry::bios("BOOT.IMG")));
+            }
+            let report = session.write(&opts, SessionMode::Rewrite).unwrap();
+            let new = report.extents("BOOT.IMG").unwrap()[0].offset();
+            let bytes = session.into_inner();
+            assert_ne!(boot_address(&bytes), old);
+            assert_eq!(boot_address(&bytes), new / 512 + bias);
+            assert_eq!(&bytes[..432], &code);
+            let mut iso =
+                IsoFs::mount(MemDevice::new(bytes, common::SECTOR), MountOptions::new()).unwrap();
+            assert_eq!(
+                u64::from(iso.catalog().unwrap().unwrap().default_entry().load_block()) * 2048,
+                new
+            );
+            assert_eq!(iso.read_to_vec("/BOOT.IMG").unwrap(), replacement);
+        }
+    }
+}
+
+#[test]
+fn rewrite_refuses_to_move_bios_image_with_an_unknown_bootstrap() {
+    let initial = boot_options(1).with_hybrid(Hybrid::mbr().with_bootstrap(&[0x90; 432]));
+    let mut bytes = image(&catalog_tree(), &initial).into_inner();
+    bytes[432..440].fill(0xA5);
+    let mut session = Session::open(bytes.clone()).unwrap();
+    let opts = session.options();
+    session.write(&opts, SessionMode::Rewrite).unwrap();
+    let bytes = session.into_inner();
+    assert_eq!(&bytes[432..440], &[0xA5; 8]);
+
+    let mut session = Session::open(bytes.clone()).unwrap();
+    session
+        .tree_mut()
+        .replace("BOOT.IMG", Node::file(Content::bytes(vec![0x5A; 4096])))
+        .unwrap();
+    let error = session.write(&opts, SessionMode::Rewrite).unwrap_err();
+    assert_eq!(error.detail(), Some(hadris_iso::Detail::HybridBoot.code()));
+    assert!(error.message().contains("retained MBR bootstrap"));
+    assert_eq!(session.into_inner(), bytes);
+}
+
+fn iso_with_adjacent_extended_partition(logical: bool) -> (Vec<u8>, u64, u64) {
+    use hadris_part::{Disk, MbrEntry, MbrType, PartitionTable};
+
+    let block = hadris_storage::BlockSize::new(512).unwrap();
+    let initial = IsoOptions::default().with_hybrid(Hybrid::mbr());
+    let mut bytes = image(&sample(false, false), &initial).into_inner();
+    let start = bytes.len() as u64 / 512;
+    let end = start + 128;
+    bytes.resize(end as usize * 512, 0xA5);
+    let mut dev = MemDevice::new(bytes, block);
+    let PartitionTable::Mbr(mut mbr) = hadris_part::sync::read(&mut dev).unwrap().into_table()
+    else {
+        panic!("expected an MBR");
+    };
+    mbr.add(MbrEntry::new(MbrType::EXTENDED_LBA, start, end - start))
+        .unwrap();
+    if logical {
+        mbr.add_logical(MbrEntry::new(MbrType::LINUX, start + 1, 4))
+            .unwrap();
+    }
+    hadris_part::sync::write(&mut dev, &Disk::new(mbr)).unwrap();
+    (dev.into_inner(), start, end)
+}
+
+#[test]
+fn rewrite_skips_adjacent_extended_partitions() {
+    let block = hadris_storage::BlockSize::new(512).unwrap();
+    for logical in [false, true] {
+        let (bytes, start, end) = iso_with_adjacent_extended_partition(logical);
+        let original = bytes[start as usize * 512..].to_vec();
+        let mut session = Session::open(bytes).unwrap();
+        session
+            .tree_mut()
+            .insert("ADDED.TXT", Node::file(Content::bytes("new")))
+            .unwrap();
+        let report = session
+            .write(&session.options(), SessionMode::Rewrite)
+            .unwrap();
+        assert!(report.extents("ADDED.TXT").unwrap()[0].offset() >= end * 512);
+        assert!(
+            report
+                .warnings()
+                .iter()
+                .any(|warning| warning.message().contains("keeps its size"))
+        );
+        let bytes = session.into_inner();
+        assert_eq!(&bytes[start as usize * 512..end as usize * 512], &original);
+        let disk = hadris_part::sync::read(&mut MemDevice::new(bytes, block)).unwrap();
+        assert_eq!(disk.partition(0).unwrap().end(), start);
+        let hadris_part::PartitionTable::Mbr(mbr) = disk.table() else {
+            panic!("expected an MBR");
+        };
+        let extended = mbr.extended().unwrap();
+        assert_eq!((extended.start(), extended.end()), (start, end));
+    }
+}
+
+#[test]
+fn rewrite_identifies_a_truncated_extended_partition_before_writing() {
+    let (mut bytes, _, end) = iso_with_adjacent_extended_partition(false);
+    bytes.truncate((end as usize - 4) * 512);
+    let mut session = Session::open(bytes.clone()).unwrap();
+    let error = session
+        .write(&session.options(), SessionMode::Rewrite)
+        .unwrap_err();
+    assert_eq!(error.detail(), Some(hadris_iso::Detail::HybridBoot.code()));
+    assert_eq!(error.location(), Some(hadris_fs::Location::Byte(446 + 16)));
+    assert_eq!(
+        error.message(),
+        "extended MBR partition ends past the device"
+    );
+    assert_eq!(session.into_inner(), bytes);
+}
+
+#[test]
+fn rewrite_refuses_to_overwrite_an_existing_extended_boot_record() {
+    use hadris_part::{Disk, Mbr, MbrEntry, MbrType};
+
+    let block = hadris_storage::BlockSize::new(512).unwrap();
+    let bytes = image(&catalog_tree(), &IsoOptions::default()).into_inner();
+    let start = 18 * 4 + 3;
+    let mut mbr = Mbr::new(bytes.len() as u64 / 512, block).unwrap();
+    mbr.add(MbrEntry::new(MbrType::EXTENDED_LBA, start, 1))
+        .unwrap();
+    let mut dev = MemDevice::new(bytes, block);
+    hadris_part::sync::write(&mut dev, &Disk::new(mbr)).unwrap();
+    let bytes = dev.into_inner();
+    let mut session = Session::open(bytes.clone()).unwrap();
+    let opts = boot_options(1).with_joliet();
+    let error = session.write(&opts, SessionMode::Rewrite).unwrap_err();
+    assert_eq!(error.detail(), Some(hadris_iso::Detail::HybridBoot.code()));
+    assert_eq!(
+        error.location(),
+        Some(hadris_fs::Location::Byte(start * 512))
+    );
+    assert_eq!(session.into_inner(), bytes);
+}
+
 /// A rewrite keeps the disk size an MBR was read with when its extended
 /// partition ends past the new image.
 #[test]

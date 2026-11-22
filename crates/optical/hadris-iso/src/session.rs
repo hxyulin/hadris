@@ -16,7 +16,7 @@ use super::FileSystem;
 use super::image::IsoFs;
 use super::storage::BlockDevice;
 use super::write::{check_block_size, check_contents, check_output, emit};
-use crate::boot::Emulation;
+use crate::boot::{BootCatalog, Emulation, Platform};
 use crate::error::{Detail, Error};
 use crate::namespace::Namespace;
 use crate::options::{BootInfo, IsoLevel, IsoOptions, SessionMode};
@@ -546,13 +546,16 @@ impl<D: BlockDevice> Session<D> {
     /// [`Detail::BootInfoTable`]. With El Torito in `opts`, a new catalog is
     /// written and kept by subsequent writes without El Torito in `opts`.
     ///
-    /// New data goes after the old volume and after every partition of
-    /// the image's partition table, so partitions appended after the ISO
-    /// data (`xorriso -append_partition`) are kept. The system area is
+    /// New data goes after the old volume, its partitions and any extended
+    /// MBR container appended after the ISO data. The system area is
     /// written only by [`SessionMode::Rewrite`]: with hybrid boot in `opts`,
     /// new partition tables replace the old ones; without, the old tables
     /// are kept and their partitions that ended with the old volume grow
     /// with it, unless that would overlap another partition.
+    /// If the default BIOS boot image moves, the retained MBR bootstrap's
+    /// boot image address is updated when it matches the isohybrid or GRUB2
+    /// convention. If the address cannot be updated, the rewrite fails with
+    /// [`Detail::HybridBoot`] before writing.
     /// [`SessionMode::Append`] never writes the system area; it warns when
     /// `opts` has hybrid boot or the image has partition tables, which
     /// then still describe the previous session.
@@ -585,6 +588,19 @@ impl<D: BlockDevice> Session<D> {
             (SessionMode::Rewrite, None) => existing,
             _ => None,
         };
+        if let Some(tables) = &tables
+            && let Some(extended) = tables.extended()
+            && extended.end() > tables.disk.block_count()
+        {
+            let entry = 446 + extended.slot() as u64 * 16;
+            return Err(Error::<Infallible>::new(
+                ErrorKind::InvalidInput,
+                "extended MBR partition ends past the device",
+            )
+                .with_detail(Detail::HybridBoot.code())
+                .with_location(Location::Byte(entry))
+                .into());
+        }
         let keep_catalog = match opts.el_torito() {
             Some(_) => None,
             None => self.catalog,
@@ -660,7 +676,7 @@ impl<D: BlockDevice> Session<D> {
             }
         }
         if let Some(tables) = tables {
-            let (system, tail, kept) = self.updated_tables(tables, plan.end_blocks, plan.total_blocks).await?;
+            let (system, tail, kept) = self.updated_tables(tables, &plan, &fixed).await?;
             plan.regions.push(Region::Bytes { block: 0, data: system });
             if let Some(tail) = tail {
                 plan.regions.push(Region::Bytes {
@@ -887,13 +903,22 @@ impl<D: BlockDevice> Session<D> {
         let Ok(disk) = super::part::read(&mut sectors).await else {
             return Ok(None);
         };
-        let floor = disk
+        let mut floor = disk
             .partitions()
             .map(|partition| partition.end().div_ceil(4))
             .max()
             .unwrap_or(0);
         let gpt = !matches!(disk.table(), PartitionTable::Mbr(_));
         let (iso_end, backup_end) = match disk.table() {
+            PartitionTable::Mbr(mbr) => {
+                if let Some(extended) = mbr.extended()
+                    && extended.start() >= old * 4
+                    && extended.end() <= disk.block_count()
+                {
+                    floor = floor.max(extended.end().div_ceil(4));
+                }
+                (old * 4, 0)
+            }
             PartitionTable::Gpt(gpt) => (backup_array(gpt).min(old * 4), gpt.backup_lba() + 1),
             PartitionTable::Hybrid(hybrid) => (
                 backup_array(hybrid.gpt()).min(old * 4),
@@ -904,16 +929,56 @@ impl<D: BlockDevice> Session<D> {
         Ok(Some(Tables { disk, floor, gpt, iso_end, backup_end }))
     }
 
+    async fn updated_bootstrap(
+        &mut self,
+        mut bootstrap: [u8; 446],
+        plan: &plan::Plan,
+    ) -> Result<[u8; 446], Error<D::Error>> {
+        let Some(catalog) = self.catalog.filter(|_| bootstrap[..440].iter().any(|&byte| byte != 0)) else {
+            return Ok(bootstrap);
+        };
+        let Some(old) = default_bios_image(&self.read_catalog(catalog).await?) else {
+            return Ok(bootstrap);
+        };
+        let new = plan.catalog.and_then(|block| {
+            plan.regions
+                .iter()
+                .find_map(|region| match region {
+                    Region::Bytes { block: at, data } if *at == u64::from(block) => Some(data),
+                    _ => None,
+                })
+                .map_or(Some(old), |bytes| default_bios_image(bytes))
+        });
+        if new == Some(old) {
+            return Ok(bootstrap);
+        }
+        let error = || {
+            Error::new(ErrorKind::InvalidInput, "cannot update the boot image address in the retained MBR bootstrap")
+                .with_detail(Detail::HybridBoot.code())
+        };
+        let address = u64::from_le_bytes(bootstrap[432..440].try_into().unwrap());
+        let old_sector = u64::from(old) * 4;
+        let bias = address
+            .checked_sub(old_sector)
+            .filter(|bias| matches!(bias, 0 | 4))
+            .ok_or_else(error)?;
+        let new_sector = u64::from(new.ok_or_else(error)?) * 4 + bias;
+        bootstrap[432..440].copy_from_slice(&new_sector.to_le_bytes());
+        Ok(bootstrap)
+    }
+
     /// The system area with the tables moved to the new size, the backup
     /// GPT region after the data, and the first sectors of partitions that
     /// ended with the old volume but cannot grow with it.
     async fn updated_tables(
         &mut self,
         tables: Tables,
-        end: u64,
-        total: u64,
+        plan: &plan::Plan,
+        fixed: &[(u64, u64)],
     ) -> Result<Tables512, Error<D::Error>> {
         let bad = |_| Detail::HybridBoot.invalid();
+        let end = plan.end_blocks;
+        let total = plan.total_blocks;
         let new_iso_end = end * 4;
         let spans: Vec<(u64, u64)> = tables
             .disk
@@ -924,10 +989,12 @@ impl<D: BlockDevice> Session<D> {
             let last = start + len;
             last <= tables.iso_end && last + 4 >= tables.iso_end
         };
+        let extended = tables.extended();
         let fits = |start: u64| {
-            spans
-                .iter()
-                .all(|&(other, other_end)| other == start || other_end <= start || other >= new_iso_end)
+            extended.is_none_or(|part| part.end() <= start || part.start() >= new_iso_end)
+                && spans
+                    .iter()
+                    .all(|&(other, other_end)| other == start || other_end <= start || other >= new_iso_end)
         };
         let kept: Vec<u64> = spans
             .iter()
@@ -936,7 +1003,7 @@ impl<D: BlockDevice> Session<D> {
             .collect();
         let extends = |start: u64, len: u64| ends_with_volume(start, len) && fits(start);
         let block_count = tables.disk.block_count();
-        let bootstrap = *tables.disk.bootstrap();
+        let bootstrap = self.updated_bootstrap(*tables.disk.bootstrap(), plan).await?;
         let mut disk = match tables.disk.into_table() {
             PartitionTable::Mbr(mut mbr) => {
                 mbr.set_block_count(block_count.max(total * 4)).map_err(bad)?;
@@ -974,6 +1041,18 @@ impl<D: BlockDevice> Session<D> {
         for run in disk.runs() {
             let offset = run.lba() * 512;
             let bytes = run.bytes();
+            // Only primary entries can grow. Leave the existing EBR chain in place.
+            if !tables.gpt && run.lba() != 0 {
+                if offset >= system.len() as u64 && covers(fixed, offset, bytes.len() as u64) {
+                    return Err(Error::new(
+                        ErrorKind::InvalidInput,
+                        "the ISO descriptors would overwrite an extended boot record",
+                    )
+                    .with_detail(Detail::HybridBoot.code())
+                    .with_location(Location::Byte(offset)));
+                }
+                continue;
+            }
             if offset + bytes.len() as u64 <= system.len() as u64 {
                 system[offset as usize..offset as usize + bytes.len()].copy_from_slice(bytes);
             } else if offset >= end * SECTOR {
@@ -1112,6 +1191,21 @@ struct Tables {
     iso_end: u64,
     /// The 512-byte sector after the backup GPT, or 0 for an MBR.
     backup_end: u64,
+}
+
+impl Tables {
+    fn extended(&self) -> Option<hadris_part::Partition> {
+        match self.disk.table() {
+            PartitionTable::Mbr(mbr) => mbr.extended(),
+            _ => None,
+        }
+    }
+}
+
+fn default_bios_image(bytes: &[u8]) -> Option<u32> {
+    let entry = BootCatalog::new(0, bytes).entries().next()?;
+    (entry.section().is_none() && entry.platform() == Platform::X86 && entry.is_bootable())
+        .then(|| entry.load_block())
 }
 
 /// Whether the first 64 bytes `head` of the boot image at `rba`, `len`
